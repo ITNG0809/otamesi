@@ -383,6 +383,27 @@ $('file').onchange=async e=>{const f=e.target.files[0];if(!f)return;
   try{const o=JSON.parse(await f.text());
     if(!o||o.v!==1||!Array.isArray(o.tracks)||!o.tracks.length)throw new Error('対応していない形式です');
     pushUndo();restore(JSON.stringify(o));loadAudioFiles();libEnsureForProject()}catch(err){alert('読み込み失敗: '+err.message)}e.target.value=''};
+// LMMS風のプロジェクトファイル入出力。拡張子はBGM-notpc専用の .bgmnp (中身はJSON)。
+function bgmProjectFilename(name){return (String(name||'BGM').trim().replace(/[\\/:*?"<>|]/g,'_').slice(0,100)||'BGM')+'.bgmnp'}
+let bgmProjectHandle=null;
+async function bgmProjectSave(name,choosePath=false){
+  S.projectName=String(name||currentProjectName()).trim().slice(0,100)||'BGM';$('projectName').value=S.projectName;updateTabTitle();
+  const filename=bgmProjectFilename(S.projectName),blob=new Blob([snap()],{type:'application/json'});
+  try{
+    if(choosePath&&window.showSaveFilePicker){bgmProjectHandle=await window.showSaveFilePicker({suggestedName:filename,types:[{description:'BGM-notpc Project',accept:{'application/json':['.bgmnp']}}]});}
+    if(bgmProjectHandle){const w=await bgmProjectHandle.createWritable();await w.write(blob);await w.close();$('st').textContent='プロジェクトを保存しました: '+filename;saveDB();return}
+  }catch(e){if(e&&e.name==='AbortError')return;bgmProjectHandle=null;$('st').textContent='ファイル保存に失敗したためダウンロードに切り替えます'}
+  dl(filename,blob,'application/json');saveDB();
+}
+async function bgmProjectOpen(file){
+  if(!file)return;bgmProjectHandle=null;
+  try{const o=JSON.parse(await file.text());
+    if(!o||o.v!==1||!Array.isArray(o.tracks)||!o.tracks.length)throw new Error('BGM-notpcのプロジェクトファイルではありません');
+    pushUndo();restore(JSON.stringify(o));$('projectName').value=S.projectName||'BGM';loadAudioFiles();await libEnsureForProject();
+    $('st').textContent='プロジェクトを開きました: '+file.name;
+  }catch(err){alert('プロジェクトを開けませんでした: '+err.message)}
+}
+$('projectFile').onchange=async e=>{const f=e.target.files[0];e.target.value='';await bgmProjectOpen(f)};
 addEventListener('keydown',e=>{
   if(['INPUT','SELECT'].includes(e.target.tagName))return;
   if(e.code==='Space'){e.preventDefault();$('play').click()}
@@ -989,10 +1010,12 @@ function drawSong(){
   g2.fillStyle=C.panel;g2.fillRect(0,0,vw,RULER);g2.strokeStyle=C.line;g2.beginPath();g2.moveTo(0,RULER-.5);g2.lineTo(vw,RULER-.5);g2.stroke();
   for(let bar=b0;bar<=b1;bar++){const x=bar*4*BW-sx;g2.strokeStyle=C.bar;g2.lineWidth=2;g2.beginPath();g2.moveTo(x+.5,0);g2.lineTo(x+.5,RULER);g2.stroke();g2.lineWidth=1;if(bar<nb){g2.fillStyle=C.fg;g2.font='bold 11px system-ui';g2.fillText(String(bar+1),x+5,15)}}
   const px=playBeat*BW-sx;if(px>=0&&px<=vw){g2.fillStyle='#e5484d';g2.beginPath();g2.moveTo(px-5,0);g2.lineTo(px+5,0);g2.lineTo(px,8);g2.fill()}
-  S.tracks.forEach((t,i)=>{const y=i*SRH+RULER-sy;if(y+SRH<RULER||y>vh)return;g2.fillStyle=C.panel;g2.globalAlpha=.88;g2.fillRect(0,y+3,96,SRH-6);g2.globalAlpha=1;g2.fillStyle=t.color;g2.fillRect(0,y+3,5,SRH-6);
-    g2.save();g2.beginPath();g2.rect(8,y,86,SRH);g2.clip();g2.fillStyle=C.fg;g2.font='bold 11px system-ui';g2.fillText(t.name,9,y+SRH/2+4);g2.restore()});
-  S.autotr.forEach((r,i)=>{const y=(S.tracks.length+i)*SRH+RULER-sy;if(y+SRH<RULER||y>vh)return;const t=S.tracks.find(x=>x.id===r.tid);g2.fillStyle=C.panel;g2.globalAlpha=.88;g2.fillRect(0,y+3,96,SRH-6);g2.globalAlpha=1;g2.fillStyle=t?t.color:C.mut;g2.fillRect(0,y+3,5,SRH-6);
-    g2.save();g2.beginPath();g2.rect(8,y,86,SRH);g2.clip();g2.fillStyle=C.fg;g2.font='bold 10px system-ui';g2.fillText('⟲ '+(t?t.name:'?'),9,y+SRH/2+4);g2.restore()});
+  S.tracks.forEach((t,i)=>{const y=i*SRH+RULER-sy;if(y+SRH<RULER||y>vh)return;g2.fillStyle=C.panel;g2.globalAlpha=.98;g2.fillRect(0,y+3,112,SRH-6);g2.globalAlpha=1;g2.fillStyle=t.color||'#8fbd43';g2.fillRect(0,y+3,4,SRH-6);
+    /* LMMS風のピンクSF2プラグインタイル */
+    const ix=9,iy=y+Math.max(5,(SRH-22)/2);g2.fillStyle='#d96cb7';g2.fillRect(ix,iy,27,22);g2.strokeStyle='#f4b7e3';g2.lineWidth=1;g2.strokeRect(ix+.5,iy+.5,26,21);g2.fillStyle='#fff';g2.font='bold 9px system-ui';g2.textAlign='center';g2.fillText('SF2',ix+13.5,iy+14);g2.textAlign='left';
+    g2.save();g2.beginPath();g2.rect(41,y,67,SRH);g2.clip();g2.fillStyle=C.fg;g2.font='bold 11px system-ui';g2.fillText(fitText(g2,t.name,62),42,y+SRH/2+4);g2.restore()});
+  S.autotr.forEach((r,i)=>{const y=(S.tracks.length+i)*SRH+RULER-sy;if(y+SRH<RULER||y>vh)return;const t=S.tracks.find(x=>x.id===r.tid);g2.fillStyle=C.panel;g2.globalAlpha=.98;g2.fillRect(0,y+3,112,SRH-6);g2.globalAlpha=1;g2.fillStyle=t?t.color:C.mut;g2.fillRect(0,y+3,4,SRH-6);
+    g2.save();g2.beginPath();g2.rect(8,y,100,SRH);g2.clip();g2.fillStyle=C.fg;g2.font='bold 10px system-ui';g2.fillText('⟲ '+(t?t.name:'?'),9,y+SRH/2+4);g2.restore()});
   $('sgbar').querySelector('#pn').disabled=!sSel;
 }
 function setView(v){if(v===VIEW)return;syncBuf();svTop[VIEW]=roll.scrollTop;VIEW=v;selSet.clear();selNote=null;drag=null;
@@ -1800,4 +1823,12 @@ $('bm').onclick=()=>setBars(S.len/4-1);$('bp').onclick=()=>setBars(S.len/4+1,tru
 roll.addEventListener('scroll',()=>draw());
 addEventListener('resize',()=>draw());
 if(window.ResizeObserver)new ResizeObserver(()=>draw()).observe(roll);
+window.BGMProjectIO={
+  save:()=>bgmProjectSave(currentProjectName(),!bgmProjectHandle),
+  saveAs:()=>bgmProjectSave(currentProjectName(),true),
+  open:()=>$('projectFile').click(),
+  saveBrowser:()=>saveDB(),
+  exportAudio:()=>openExport(),
+  reset:()=>$('reset').click()
+};
 loadDB().then(()=>{$('roll').scrollTop=(HI-1-76)*RH;loadAudioFiles();libInit()});

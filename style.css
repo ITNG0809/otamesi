@@ -207,3 +207,21 @@ aside{min-width:0;overflow-x:hidden}
 :root[data-lmms="1"] main>aside.lmms-window>.aact{flex:0 0 auto}
 :root[data-lmms="1"] main>aside.lmms-window>#tl{flex:1 1 auto;min-height:0;overflow:auto}
 :root[data-lmms="1"] main>aside.lmms-window>#atl{flex:0 1 auto;max-height:34%;overflow:auto;border-top:1px solid #17191d}
+/* LMMS風: ファイル操作は上部の「ファイル」メニューに集約 */
+:root[data-lmms="1"] header #save,
+:root[data-lmms="1"] header #exp,
+:root[data-lmms="1"] header #imp,
+:root[data-lmms="1"] header #reset,
+:root[data-lmms="1"] header #wav{display:none!important}
+.lmms-menu-separator{height:1px;margin:4px 3px;background:#17191d;border-top:1px solid #454a52}
+
+/* LMMS Song Editor refinements: horizontal arrangement lanes + recognizable pink SF2 tiles */
+:root[data-lmms="1"] .sf2-button{gap:7px}
+:root[data-lmms="1"] .sf2-badge{display:inline-grid;place-items:center;width:28px;height:23px;flex:0 0 28px;border-radius:2px;background:linear-gradient(135deg,#e78ac8,#c34e9e);border:1px solid #f4b6df;color:#fff;font-size:9px;font-weight:900;letter-spacing:-.3px;box-shadow:inset 0 1px #ffffff55;text-shadow:0 1px 1px #7c275e}
+:root[data-lmms="1"] header .sf2-button:hover .sf2-badge{filter:brightness(1.12)}
+:root[data-lmms="1"] #roll{background:#25282e}
+:root[data-lmms="1"] #cv{display:block}
+:root[data-lmms="1"] #rc{min-width:320px}
+:root[data-lmms="1"] #sgbar{order:-1}
+:root[data-lmms="1"] #sgbar b{color:#d8dce2}
+:root[data-lmms="1"] #sgbar button{min-height:27px;height:27px}

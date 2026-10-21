@@ -1,15 +1,12 @@
 # BGM-notpc Studio — LMMS-inspired UI
 
-A browser-based music-making project. This version adds an LMMS-inspired dark desktop layout while keeping the existing editing/audio engine in `script.js`.
+Static HTML/CSS/JavaScript music workstation. Open `index.html` in a modern browser or publish the folder as a static site.
 
-## Run
-Open `index.html` in a modern browser. No build step or network connection is required.
+## UI updates in this build
+- Keeps the existing song editor, piano roll, audio lanes, MIDI/SF2 workflows, effects, and project actions.
+- Song Editor shows horizontal arrangement lanes per track with the track name and a pink SF2-style instrument tile.
+- SF2 load/library controls use matching pink SF2 badges.
+- LMMS-inspired top menu and toolbar layout remain above the editor.
+- Project save/open and audio export menu actions are included where supported by the current browser and application code.
 
-## UI additions
-- Dark DAW-style menu bar and transport strip
-- Draggable Browser and Editor windows inside the workspace
-- Window minimize, maximize/restore, close, and bottom taskbar restore controls
-- Menu actions for project, editing, view, and tool functions
-- LMMS-inspired compact controls and green accent color
-
-The Song Editor and Piano Roll are views of the existing editor, so the original note, pattern, audio, MIDI, SoundFont, mixer, and project functions remain connected to the same engine.
+This is an LMMS-inspired interface, not a native LMMS project format implementation.
