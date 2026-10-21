@@ -225,3 +225,14 @@ aside{min-width:0;overflow-x:hidden}
 :root[data-lmms="1"] #sgbar{order:-1}
 :root[data-lmms="1"] #sgbar b{color:#d8dce2}
 :root[data-lmms="1"] #sgbar button{min-height:27px;height:27px}
+
+
+/* Dialog/backdrop fix: overlays created or modified by JavaScript must keep the same blur. */
+#xpo, #sepo, #sbpo,
+.lmms-modal-backdrop, .modal-backdrop, [data-modal-backdrop="1"] {
+  -webkit-backdrop-filter: blur(8px) saturate(.82) !important;
+  backdrop-filter: blur(8px) saturate(.82) !important;
+  background: rgba(0,0,0,.56) !important;
+}
+#xpo:not([hidden]), #sepo:not([hidden]), #sbpo:not([hidden]) { isolation:isolate; }
+#xpo .xdlg, #sepo .xdlg, #sbpo .xdlg { position:relative; z-index:1; }

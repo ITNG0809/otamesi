@@ -15,11 +15,13 @@
   const menus={
     project:[['新規プロジェクト','lmms-new'],['プロジェクトを開く…','lmms-open'],['プロジェクトを保存','lmms-save'],['名前を付けて保存…','lmms-saveas'],['ブラウザ内に保存','lmms-browser-save'],['区切り','separator'],['音声を書き出す…','lmms-export-audio'],['MIDIを書き出す','mexp'],['MIDIを読み込む…','mimp']],
     edit:[['元に戻す','undo'],['やり直す','redo'],['全選択','sall'],['選択項目を削除','del']],
-    view:[['Song Editor','vSong'],['Piano Roll','vRoll'],['Browser を表示 / 非表示','lmms-browser'],['Mixer を表示 / 非表示','lmms-mixer'],['編集ツールバー','lmms-toolbar'],['ベロシティレーン','lmms-velocity']],
+    view:[['Song Editor を開く','lmms-song-window'],['Piano Roll を開く','lmms-roll-window'],['Browser を表示 / 非表示','lmms-browser'],['Mixer を表示 / 非表示','lmms-mixer'],['編集ツールバー','lmms-toolbar'],['ベロシティレーン','lmms-velocity']],
     tools:[['SoundFont ライブラリ','sflB'],['自作エフェクト','fxs'],['MIDI 読み込み','mimp'],['MIDI 書き出し','mexp']],
     help:[['BGM-notpcについて','lmms-about']]
   };
   function runAction(id){
+    if(id==='lmms-song-window'){openEditorView('song');return}
+    if(id==='lmms-roll-window'){openEditorView('roll');return}
     if(id==='lmms-new'){document.getElementById('reset')?.click();return}
     if(id==='lmms-open'){window.BGMProjectIO?.open();return}
     if(id==='lmms-save'){window.BGMProjectIO?.save();return}
@@ -72,8 +74,20 @@
   }
   const browserWin=makeWindow(browser,{id:'browser',title:'My Samples',subtitle:'BROWSER',initial:{left:'8px',top:'8px',width:'246px',height:'calc(100% - 46px)'},closeAction:()=>browser.classList.add('lmms-hidden')});
   const editorWin=makeWindow(editor,{id:'editor',title:'Piano Roll / Song Editor',subtitle:'ARRANGEMENT',initial:{left:'264px',top:'8px',width:'calc(100% - 272px)',height:'calc(100% - 46px)'},closeAction:()=>editor.classList.add('lmms-hidden')});
-  // Browser title changes with the active editing view; the underlying editor remains the same functional component.
+  // Song Editor and Piano Roll are separately selectable floating workspaces. They share the
+  // same live editor engine/state (rather than cloning canvases and risking broken editing).
   const refreshTitle=()=>{const song=$('#vSong')?.classList.contains('on');editorWin.bar.querySelector('strong').textContent=song?'Song Editor':'Piano Roll';editorWin.bar.querySelector('small').textContent=song?'ARRANGEMENT':'NOTE EDITOR'};
+  function openEditorView(view){
+    const target=view==='song'?$('#vSong'):$('#vRoll');
+    target?.click();
+    editorWin.restore();
+    editorWin.el.classList.remove('lmms-minimized','lmms-hidden');
+    editorWin.el.style.width=view==='song'?'calc(100% - 272px)':'min(1000px, calc(100% - 272px))';
+    editorWin.el.style.height=view==='song'?'calc(100% - 46px)':'min(760px, calc(100% - 46px))';
+    editorWin.el.style.left=view==='song'?'264px':'min(300px, 20%)';
+    editorWin.el.style.top=view==='song'?'8px':'36px';
+    setTimeout(refreshTitle,0);
+  }
   $('#vSong')?.addEventListener('click',()=>setTimeout(refreshTitle,0));$('#vRoll')?.addEventListener('click',()=>setTimeout(refreshTitle,0));refreshTitle();
 
   const task=document.createElement('div');task.id='lmmsTaskbar';task.innerHTML=`<span class="lmms-task-label">WINDOWS</span><button data-restore="browser">▤ Browser</button><button data-restore="editor">♫ Editor</button><button data-restore="mixer">▥ Mixer</button><span class="lmms-task-spacer"></span><span class="lmms-task-status"><i></i> AUDIO ENGINE READY</span>`;main.appendChild(task);
@@ -86,5 +100,5 @@
   // Keep the desktop useful after viewport changes and preserve the MDI-style floating layout.
   addEventListener('resize',()=>{const r=main.getBoundingClientRect();[browser,editor].forEach(el=>{if(el.classList.contains('lmms-maximized'))return;const left=parseFloat(el.style.left)||0,top=parseFloat(el.style.top)||0;if(left>r.width-90)el.style.left=Math.max(0,r.width-220)+'px';if(top>r.height-40)el.style.top=Math.max(0,r.height-120)+'px'})});
   // expose only for basic diagnostics
-  window.BGMNotpcLMMSUI={restoreBrowser:browserWin.restore,restoreEditor:editorWin.restore};
+  window.BGMNotpcLMMSUI={restoreBrowser:browserWin.restore,restoreEditor:editorWin.restore,openSongEditor:()=>openEditorView('song'),openPianoRoll:()=>openEditorView('roll')};
 })();
