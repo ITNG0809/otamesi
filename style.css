@@ -236,3 +236,91 @@ aside{min-width:0;overflow-x:hidden}
 }
 #xpo:not([hidden]), #sepo:not([hidden]), #sbpo:not([hidden]) { isolation:isolate; }
 #xpo .xdlg, #sepo .xdlg, #sbpo .xdlg { position:relative; z-index:1; }
+
+
+/* === LMMS closer desktop skin: compact Qt-style chrome, panels and pattern blocks === */
+:root[data-lmms="1"]{--lmms-bg:#3b3e43;--lmms-panel:#45484d;--lmms-dark:#292b2f;--lmms-border:#202226;--lmms-text:#e5e7e9;--lmms-muted:#aeb3b8;--lmms-green:#8fbd43}
+:root[data-lmms="1"] body{font-family:Arial,"Noto Sans JP",sans-serif;font-size:12px;background:var(--lmms-bg);gap:0}
+:root[data-lmms="1"] #lmmsMenu{height:27px;min-height:27px;padding:0 6px;gap:9px;background:#d7d7d7;color:#202020;border-bottom:1px solid #777;font-size:12px;box-shadow:inset 0 1px #f4f4f4}
+:root[data-lmms="1"] .lmms-brand{gap:5px;color:#242424;font-size:12px;font-weight:700}
+:root[data-lmms="1"] .lmms-logo{width:20px;height:20px;border-radius:2px;background:#7eaa38;color:#17200d;font-size:17px}
+:root[data-lmms="1"] .lmms-brand small{display:none}
+:root[data-lmms="1"] .lmms-menus{gap:0}
+:root[data-lmms="1"] .lmms-menus button{height:25px;min-height:25px;padding:0 9px;border-radius:0;color:#202020;font-size:12px}
+:root[data-lmms="1"] .lmms-menus button:hover{background:#bfc5cc;color:#111}
+:root[data-lmms="1"] .lmms-menuright{color:#4d5156;font-size:10px}
+:root[data-lmms="1"] .lmms-menuright b{color:#202020}
+:root[data-lmms="1"] header{height:42px;min-height:42px;padding:4px 6px;gap:3px;background:#c7c9cc;border-bottom:1px solid #7d8084;box-shadow:inset 0 1px #f5f5f5}
+:root[data-lmms="1"] header .ib{height:29px;min-height:29px;min-width:29px;padding:2px 6px;border-radius:2px;background:linear-gradient(#f5f5f5,#c9cacc);border:1px solid #8b8e92;color:#25272a;box-shadow:inset 0 1px #fff}
+:root[data-lmms="1"] header .ib:hover{background:linear-gradient(#fff,#d9dadd)}
+:root[data-lmms="1"] header .ib.on,:root[data-lmms="1"] header .seg button.on{background:linear-gradient(#b8d98a,#7eaa38);border-color:#557c27;color:#17200d}
+:root[data-lmms="1"] header .ib.danger{color:#8b2424}
+:root[data-lmms="1"] header input,:root[data-lmms="1"] header select{height:28px;min-height:28px;padding:2px 5px;background:#f2f2f2;border:1px solid #85888c;border-radius:2px;color:#202124}
+:root[data-lmms="1"] header .hl{font-size:11px;color:#282a2d}
+:root[data-lmms="1"] #pos{min-width:47px;padding:3px 5px;background:#22252a;color:#b7df79;border:1px solid #111;font:12px monospace}
+:root[data-lmms="1"] #st{color:#34373b;font-size:10px}
+:root[data-lmms="1"] .seg{display:inline-flex;border:1px solid #898c90;border-radius:2px;overflow:hidden}
+:root[data-lmms="1"] .seg button{height:27px;min-height:27px;padding:0 8px;border:0;border-radius:0;background:linear-gradient(#f5f5f5,#c9cacc);color:#282a2d;font-size:11px}
+:root[data-lmms="1"] .sep{height:24px;border-left:1px solid #a3a5a8;border-right:1px solid #efefef;margin:0 3px}
+:root[data-lmms="1"] main{background:#55585d;background-image:linear-gradient(45deg,#ffffff06 25%,transparent 25%,transparent 75%,#ffffff06 75%),linear-gradient(45deg,#ffffff06 25%,transparent 25%,transparent 75%,#ffffff06 75%);background-position:0 0,6px 6px;background-size:12px 12px;padding:0}
+:root[data-lmms="1"] main>aside.lmms-window,:root[data-lmms="1"] main>#rc.lmms-window{border:1px solid #1c1e21;border-radius:2px;box-shadow:1px 2px 4px #0008;background:#3c3f44;resize:both}
+:root[data-lmms="1"] .lmms-window.lmms-active{border-color:#8fbd43;box-shadow:0 0 0 1px #8fbd43,1px 2px 5px #0009}
+:root[data-lmms="1"] .lmms-titlebar{height:25px;min-height:25px;padding:0 4px;gap:5px;background:linear-gradient(#686b70,#4a4d52);border-bottom:1px solid #222428;font-size:11px}
+:root[data-lmms="1"] .lmms-titlebar strong{font-size:11px;text-shadow:0 1px #222}
+:root[data-lmms="1"] .lmms-titlebar small{font-size:9px;color:#c1c4c8}
+:root[data-lmms="1"] .lmms-window-icon{width:16px;height:16px;border-radius:2px;background:#8fbd43;color:#1d2710;font-size:12px}
+:root[data-lmms="1"] .lmms-winbtn{width:20px;min-width:20px;height:18px;min-height:18px;border:1px solid #282a2d;border-radius:2px;background:linear-gradient(#777b80,#4a4d52);box-shadow:inset 0 1px #9a9da1;color:#f2f3f4;font-size:13px}
+:root[data-lmms="1"] .lmms-winbtn.lmms-close{background:linear-gradient(#bd6a64,#873d39)}
+:root[data-lmms="1"] #lmmsDropdown{background:#e0e1e2;border:1px solid #73767a;border-radius:2px;box-shadow:2px 3px 8px #0008;padding:2px;color:#202124}
+:root[data-lmms="1"] #lmmsDropdown button{height:27px;min-height:27px;color:#202124;border-radius:1px;font-size:12px}
+:root[data-lmms="1"] #lmmsDropdown button:hover{background:#b8d98a;color:#151b0d}
+:root[data-lmms="1"] #lmmsTaskbar{height:27px;background:#c7c9cc;border-top:1px solid #f4f4f4;color:#35383c;padding:2px 4px;gap:3px}
+:root[data-lmms="1"] .lmms-task-label,:root[data-lmms="1"] .lmms-task-status{display:none}
+:root[data-lmms="1"] #lmmsTaskbar button{height:22px;min-height:22px;background:linear-gradient(#f3f3f3,#c4c6c8);border:1px solid #85888c;border-radius:2px;color:#25272a;font-size:11px}
+:root[data-lmms="1"] #lmmsTaskbar button.active{background:linear-gradient(#b8d98a,#7eaa38);border:1px solid #557c27;color:#17200d}
+:root[data-lmms="1"] main>aside.lmms-window>.aact{background:#383b40;border-bottom:1px solid #202226;padding:4px;gap:3px}
+:root[data-lmms="1"] main>aside.lmms-window>.aact button{height:27px;min-height:27px;background:linear-gradient(#60646a,#41444a);border:1px solid #22252a;color:#f0f1f2;border-radius:2px;font-size:11px}
+:root[data-lmms="1"] .trk{background:#383b40;border:1px solid #26292d;border-radius:2px;padding:5px;gap:4px}
+:root[data-lmms="1"] .trk.sel{border-color:#9ac85a;box-shadow:inset 3px 0 #9ac85a}
+:root[data-lmms="1"] .trk button,:root[data-lmms="1"] .trk input,:root[data-lmms="1"] .trk select{border-radius:2px}
+:root[data-lmms="1"] .bar2{background:#c7c9cc;border-color:#888b8f;color:#2b2d30;padding:3px 5px;gap:3px;font-size:11px}
+:root[data-lmms="1"] .bar2 button,:root[data-lmms="1"] .bar2 select,:root[data-lmms="1"] .bar2 input{min-height:26px;height:26px;padding:2px 6px;border-radius:2px;background:linear-gradient(#f3f3f3,#d0d1d3);border:1px solid #888b8f;color:#242629}
+:root[data-lmms="1"] .bar2 button.on,:root[data-lmms="1"] .bar2 button.pri{background:linear-gradient(#b8d98a,#7eaa38);border-color:#557c27;color:#17200d}
+:root[data-lmms="1"] .bar2 b,:root[data-lmms="1"] .bar2 .sl,:root[data-lmms="1"] .bar2 label{color:#292c30}
+:root[data-lmms="1"] #mx{background:#c4c6c9;border-color:#888b8f;padding:5px;gap:5px}
+:root[data-lmms="1"] .fx{background:#41444a;border:1px solid #22252a;border-radius:2px}
+:root[data-lmms="1"] .fx button,:root[data-lmms="1"] .fx input{border-radius:2px}
+:root[data-lmms="1"] #dock{background:#c7c9cc;border-top:1px solid #f4f4f4;padding:2px 4px;gap:3px}
+:root[data-lmms="1"] #dock button{height:24px;min-height:24px;background:linear-gradient(#f3f3f3,#c4c6c8);border:1px solid #85888c;border-radius:2px;color:#25272a}
+:root[data-lmms="1"] #dock button.on{background:linear-gradient(#b8d98a,#7eaa38);color:#17200d}
+:root[data-lmms="1"] #roll{background:#292c31}
+:root[data-lmms="1"] #hs{background:#c7c9cc;border-color:#888b8f}
+:root[data-lmms="1"] #hsT{background:#8fbd43;border:1px solid #587d2c;border-radius:2px;opacity:1}
+:root[data-lmms="1"] #vs{background:#c7c9cc;border-color:#888b8f}
+:root[data-lmms="1"] #vsT{background:#8fbd43;border:1px solid #587d2c;border-radius:2px;opacity:1}
+:root[data-lmms="1"] .sf2-badge{border-radius:2px}
+@media(max-width:760px){:root[data-lmms="1"] #lmmsMenu{height:28px;min-height:28px}:root[data-lmms="1"] header{height:40px;min-height:40px}:root[data-lmms="1"] header .ib{height:32px;min-height:32px}:root[data-lmms="1"] main>aside.lmms-window{width:min(78vw,246px)!important}:root[data-lmms="1"] main>#rc.lmms-window{left:8px!important;top:8px!important;width:calc(100% - 16px)!important}}
+@media(pointer:coarse){:root[data-lmms="1"] .lmms-winbtn{min-width:26px;width:26px;height:24px;min-height:24px}:root[data-lmms="1"] .lmms-titlebar{height:30px;min-height:30px}:root[data-lmms="1"] .lmms-titlebar strong{font-size:12px}}
+
+/* Separate LMMS-style Song Editor and Piano Roll floating windows */
+:root[data-lmms="1"] main>.lmms-editor-host{position:absolute;display:flex;flex-direction:column;min-width:300px;min-height:220px;padding:0;margin:0;overflow:hidden;background:#30343b;border:1px solid #17191d;border-radius:2px;box-shadow:0 3px 10px #0009;resize:both;z-index:23}
+:root[data-lmms="1"] main>.lmms-editor-host.lmms-active{z-index:29}
+:root[data-lmms="1"] main>.lmms-editor-host>#rc{position:relative;inset:auto;flex:1 1 auto;display:flex;flex-direction:column;min-width:0;min-height:0;width:100%;height:100%;max-width:none;max-height:none;overflow:hidden;border:0;box-shadow:none;resize:none}
+.lmms-editor-placeholder{display:flex;flex:1;min-height:0;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:#c5c9ce;background:linear-gradient(#30343b,#282b30);text-align:center;padding:18px}
+.lmms-editor-placeholder>span{display:grid;place-items:center;width:42px;height:42px;background:#8fbd43;color:#202719;font-size:25px;border-radius:3px}
+.lmms-editor-placeholder strong{font-size:14px;color:#f0f1f2}
+.lmms-editor-placeholder p{font-size:12px;max-width:230px;line-height:1.6;color:#aeb4bd}
+.lmms-editor-placeholder button{min-height:36px;padding:0 14px;border:1px solid #191c20;border-radius:2px;background:linear-gradient(#666b72,#41454b);color:#f4f5f6;font-size:12px}
+:root[data-lmms="1"] #lmmsTaskbar button{font-size:10px}
+@media(max-width:760px){:root[data-lmms="1"] main>.lmms-editor-host{min-width:260px;min-height:220px;width:calc(100% - 16px)!important;height:calc(100% - 42px)!important;left:8px!important;top:8px!important}:root[data-lmms="1"] main>.lmms-editor-host>#rc{min-width:0}}
+
+
+/* Dual editor windows: one live editor plus an interactive, refreshed preview of the other view. */
+:root[data-lmms="1"] main>.lmms-editor-host{min-width:300px;min-height:220px}
+:root[data-lmms="1"] main>.lmms-editor-host>#rc{position:relative;inset:auto;flex:1 1 auto;display:flex;flex-direction:column;min-width:0;min-height:0;width:100%;height:100%;max-width:none;max-height:none;overflow:hidden;border:0;box-shadow:none;resize:none}
+.lmms-editor-preview{display:flex;flex:1 1 auto;flex-direction:column;min-width:0;min-height:0;overflow:auto;background:#25282e;color:#dce0e5;touch-action:pan-x pan-y}
+.lmms-preview-caption{flex:0 0 auto;padding:5px 8px;background:#34383f;border-bottom:1px solid #17191d;color:#aeb5be;font:10px system-ui;letter-spacing:.2px}
+.lmms-editor-preview canvas{display:block;width:100%;height:auto;min-height:120px;object-fit:contain;touch-action:none;cursor:pointer;background:#25282e}
+:root[data-lmms="1"] .lmms-editor-preview:active .lmms-preview-caption{color:#b8e77a}
+@media(max-width:760px){:root[data-lmms="1"] main>.lmms-editor-host{min-width:260px;min-height:220px;width:calc(100% - 16px)!important;height:calc(100% - 42px)!important;left:8px!important;top:8px!important}:root[data-lmms="1"] .lmms-preview-caption{font-size:11px;padding:7px 8px}}
+:root[data-lmms="1"] .lmms-editor-preview canvas{image-rendering:auto;max-width:none}

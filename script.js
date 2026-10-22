@@ -952,7 +952,7 @@ function togglePatternAutomation(){if(!EP){$('st').textContent='先にパター�
 $('patAuto').onclick=togglePatternAutomation;$('patAutoKind').onchange=e=>{PAKind=e.target.value;if(EP){EP.automation=EP.automation||{curves:{}};EP.automation.kind=PAKind;EP.automation.curves=EP.automation.curves||{};EP.automation.curves[PAKind]=EP.automation.curves[PAKind]||[];draw();dirty()}};
 
 /* ---------- パターン / ソングエディター ---------- */
-let EP=null,bufObj=null,NC=null,VIEW='roll',sSel=null,sdrag=null,lastTap={pl:null,t:0};const SRH=(window.matchMedia&&matchMedia('(pointer:coarse)').matches)?34:24,svTop={roll:(HI-1-76)*RH,song:0};
+let EP=null,bufObj=null,NC=null,VIEW='roll',sSel=null,sdrag=null,lastTap={pl:null,t:0};const SRH=(window.matchMedia&&matchMedia('(pointer:coarse)').matches)?34:24,svTop={roll:(HI-1-76)*RH,song:0},svLeft={roll:0,song:0};
 function uid(){return Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-3)}
 const contentH=()=>VIEW==='song'?S.tracks.length*SRH+RULER:VIEW==='auto'?roll.clientHeight:ROWS*RH+RULER;
 function newPattern(color){return{id:uid(),name:'Pattern '+(S.patterns.length+1),color:color||TCOL[0],len:16,notes:[],automation:{kind:'vol',curves:{vol:[],pitch:[],echo:[]}}}}
@@ -980,7 +980,13 @@ function songNotes(){if(NC)return NC;NC=[];const P=new Map(S.patterns.map(p=>[p.
   return NC}
 function relPB(){if(!EP)return -1;for(const q of S.place)if(q.pid===EP.id&&playBeat>=q.s&&playBeat<q.s+q.l)return(playBeat-q.s)%EP.len;return -1}
 function updInfo(){if(EP){const n=S.place.filter(q=>q.pid===EP.id).length;$('pinfo').textContent='編集中: '+EP.name+' (配置'+n+'箇所)';if(document.activeElement!==$('plen'))$('plen').value=EP.len/4}}
-function draw(){if(VIEW==='auto'&&!EA){setView('song');return}syncBuf();updInfo();if(VIEW==='song'){drawSong();updateHS();updateVS();drawAL()}else if(VIEW==='auto'){updAbar();drawAuto();updateHS();updateVS();drawAL()}else drawRoll()}
+function draw(){if(VIEW==='auto'&&!EA){setView('song');return}syncBuf();updInfo();if(VIEW==='song'){drawSong();updateHS();updateVS();drawAL()}else if(VIEW==='auto'){updAbar();drawAuto();updateHS();updateVS();drawAL()}else drawRoll();window.__lmmsRefreshPreviews?.()}
+window.__BGMGetView=()=>VIEW;
+window.__BGMRenderForView=function(v){
+  const prev=VIEW,top=roll.scrollTop,left=roll.scrollLeft;
+  try{syncBuf();VIEW=v;roll.scrollTop=svTop[v]||0;roll.scrollLeft=svLeft[v]||0;if(v==='song')drawSong();else if(v==='roll')drawRoll()}
+  finally{VIEW=prev;roll.scrollTop=top;roll.scrollLeft=left}
+};
 function drawSong(){
   const r=devicePixelRatio||1,vw=Math.max(1,roll.clientWidth),vh=Math.max(1,roll.clientHeight),W=S.len*BW,H=S.tracks.length*SRH,sx=roll.scrollLeft,sy=roll.scrollTop;
   sz.style.width=W+'px';sz.style.height=(H+RULER)+'px';
@@ -994,14 +1000,20 @@ function drawSong(){
   g2.globalAlpha=1;g2.lineWidth=1;g2.strokeStyle=C.line;for(let i=0;i<S.tracks.length;i++){g2.beginPath();g2.moveTo(sx,(i+1)*SRH-.5);g2.lineTo(x1,(i+1)*SRH-.5);g2.stroke()}
   const P=new Map(S.patterns.map(p=>[p.id,p]));
   for(const q of S.place){const p=P.get(q.pid);if(!p)continue;const x=q.s*BW,w=qpx(q),rw=q.l*BW,y=q.ti*SRH+3,h=SRH-6;if(x>sx+vw||x+Math.max(w,rw)<sx)continue;
-    g2.globalAlpha=.85;g2.fillStyle=p.color;g2.fillRect(x,y,w,h);g2.globalAlpha=1;g2.save();g2.beginPath();g2.rect(x,y,w,h);g2.clip();
+    // LMMS風パターンブロック：軽いグラデーション、上端ハイライト、暗い外枠。
+    g2.globalAlpha=.96;
+    const patGrad=g2.createLinearGradient(0,y,0,y+h);patGrad.addColorStop(0,p.color);patGrad.addColorStop(1,'#202328');
+    g2.fillStyle=patGrad;g2.fillRect(x,y,w,h);g2.globalAlpha=1;
+    g2.fillStyle=p.color;g2.globalAlpha=.88;g2.fillRect(x+1,y+1,Math.max(0,w-2),Math.max(1,Math.min(4,h-2)));g2.globalAlpha=1;
+    g2.save();g2.beginPath();g2.rect(x,y,w,h);g2.clip();
     if(p.notes.length){let lo=127,hi=0;for(const n of p.notes){lo=Math.min(lo,n.p);hi=Math.max(hi,n.p)}const rg=Math.max(8,hi-lo+1),nh=Math.max(1,(h-4)/rg);g2.fillStyle='rgba(255,255,255,.85)';
       for(let k=0;k*p.len<q.l-1e-9;k++){const o=q.s+k*p.len,lim=Math.min(q.s+q.l,o+p.len);for(const n of p.notes){const st=o+n.s;if(n.p<lo||st>=lim)continue;const nx=st*BW;if(nx>sx+vw||nx+n.d*BW<sx)continue;g2.fillRect(nx,y+2+(hi-n.p)*nh,Math.max(2,Math.min(n.d,lim-st)*BW),nh)}
         if(k>0){g2.fillStyle='rgba(0,0,0,.35)';g2.fillRect(o*BW,y,1.5,h);g2.fillStyle='rgba(255,255,255,.85)'}}}
     if(rw<w-1){g2.fillStyle='rgba(0,0,0,.5)';g2.fillRect(x+rw,y,w-rw,h);g2.fillStyle='rgba(255,255,255,.7)';g2.fillRect(x+rw-1,y,2,h)} // 表示幅より短い再生範囲: 範囲外(再生されない部分)を暗く
     g2.restore();
     if(rw>w+1){g2.strokeStyle=p.color;g2.lineWidth=2;g2.setLineDash([5,3]);g2.beginPath();g2.moveTo(x+w,y+h/2);g2.lineTo(x+rw,y+h/2);g2.stroke();g2.setLineDash([]);g2.lineWidth=1;g2.fillStyle=p.color;g2.fillRect(x+rw-2,y+2,3,h-4)} // 表示幅より長い再生範囲: 破線で再生される範囲を示す
-    const sel=sSel===q,ed=EP===p;g2.strokeStyle=sel?C.fg:'rgba(0,0,0,.35)';g2.lineWidth=sel?2.5:1;g2.strokeRect(x+.5,y+.5,w-1,h-1);g2.lineWidth=1;
+    const sel=sSel===q,ed=EP===p;g2.strokeStyle=sel?'#f0f3f5':'rgba(0,0,0,.72)';g2.lineWidth=sel?2:1;g2.strokeRect(x+.5,y+.5,w-1,h-1);g2.lineWidth=1;
+    if(w>8&&h>8){g2.strokeStyle='rgba(255,255,255,.28)';g2.beginPath();g2.moveTo(x+1,y+1.5);g2.lineTo(x+w-2,y+1.5);g2.stroke()}
     g2.save();g2.beginPath();g2.rect(x,y,w,h);g2.clip();g2.fillStyle='#fff';g2.font='bold 11px system-ui';g2.shadowColor='rgba(0,0,0,.6)';g2.shadowBlur=2;g2.fillText(fitText(g2,(ed?'✎ ':'')+p.name,Math.max(8,w-18)),Math.max(x,sx)+5,y+11);g2.restore();
     if(RANGEMODE){g2.fillStyle='#e0902d';g2.fillRect(x+rw-3,y-2,6,h+4);g2.fillStyle='#fff';g2.fillRect(x+rw-1,y+4,2,h-8)} // 再生範囲の取っ手(オレンジ)
     else if(sel){g2.fillStyle='rgba(255,255,255,.85)';g2.fillRect(x+w-6,y+4,2,h-8);g2.fillRect(x+w-10,y+4,2,h-8)}} // 表示幅の取っ手(右端)
@@ -1018,9 +1030,9 @@ function drawSong(){
     g2.save();g2.beginPath();g2.rect(8,y,100,SRH);g2.clip();g2.fillStyle=C.fg;g2.font='bold 10px system-ui';g2.fillText('⟲ '+(t?t.name:'?'),9,y+SRH/2+4);g2.restore()});
   $('sgbar').querySelector('#pn').disabled=!sSel;
 }
-function setView(v){if(v===VIEW)return;syncBuf();svTop[VIEW]=roll.scrollTop;VIEW=v;selSet.clear();selNote=null;drag=null;
+function setView(v){if(v===VIEW)return;syncBuf();svTop[VIEW]=roll.scrollTop;svLeft[VIEW]=roll.scrollLeft;VIEW=v;selSet.clear();selNote=null;drag=null;
   $('vlw').style.display=v==='roll'?'':'none';$('sgbar').style.display=v==='song'?'flex':'none';$('abar').style.display=v==='auto'?'flex':'none';
-  $('vSong').classList.toggle('on',v==='song');$('vRoll').classList.toggle('on',v==='roll');draw();roll.scrollTop=svTop[v];draw();syncSongBar()}
+  $('vSong').classList.toggle('on',v==='song');$('vRoll').classList.toggle('on',v==='roll');draw();roll.scrollTop=svTop[v];roll.scrollLeft=svLeft[v]||0;draw();syncSongBar()}
 $('vSong').onclick=()=>{PAEdit=false;$('patAuto').classList.remove('on');$('patAutoKind').style.display='none';setView('song')};$('vRoll').onclick=()=>setView('roll');
 function openPattern(q){const P=S.patterns.find(p=>p.id===q.pid);if(!P)return;syncBuf();bufObj=null;EP=P;S.edit=P.id;sel=q.ti;selSet.clear();selNote=null;sSel=q;
   setView('roll');renderTracks();draw();roll.scrollLeft=0;$('st').textContent='パターン「'+P.name+'」を編集中(ソング画面に戻るとブロックに反映されます)'}
