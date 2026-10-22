@@ -1214,6 +1214,8 @@ function markAuto(el,pid){if(!el)return;el.dataset.apid=pid;el.addEventListener(
 function refreshAutoMarks(){const idx=autoIdx();document.querySelectorAll('[data-apid]').forEach(el=>{const on=idx.has(el.dataset.apid);el.classList.toggle('autoed',on);el.title=on?'オートメーション接続中(再生中は曲の値が優先されます)  右クリックで編集':'右クリックでオートメーションを作成'})}
 /* ---- ソング上のオートメーション行/クリップ ---- */
 function openAuto(q){const a=S.autos.find(x=>x.id===q.aid);if(!a)return;EA=a;EQ=q;eaId=a.id;eqId=q.id;asel=new Set();AVZ={lo:0,hi:1};svTop.auto=0;if(VIEW==='auto'){roll.scrollLeft=0;draw()}else{setView('auto');roll.scrollLeft=0;draw()}}
+window.__BGMGetAutoSelection=()=>EA&&EQ?{aid:EA.id,qid:EQ.id}:null;
+window.addEventListener('message',e=>{if(e.origin!==location.origin||!e.data||e.data.type!=='bgm-open-auto'||!e.data.selection)return;const q=S.aplace.find(x=>x.id===e.data.selection.qid&&x.aid===e.data.selection.aid);if(q)openAuto(q)});
 function drawAutoBlocks(g2,C,sx,vw){const P0=S.tracks.length;
   for(const q of S.aplace){const a=S.autos.find(x=>x.id===q.aid),ri=S.autotr.findIndex(r=>r.id===q.tr);if(!a||ri<0)continue;const x=q.s*BW,w=Math.max(3,q.l*BW),y=(P0+ri)*SRH+3,h=SRH-6;if(x>sx+vw||x+w<sx)continue;
     const ok=!a.target||!!autoDesc(a.target);g2.globalAlpha=.9;g2.fillStyle='#262a30';g2.fillRect(x,y,w,h);g2.globalAlpha=.28;g2.fillStyle=a.color;g2.fillRect(x,y,w,h);g2.globalAlpha=1;
@@ -1998,5 +2000,6 @@ if(__bgmChannel)__bgmChannel.addEventListener('message',e=>{
 });
 loadDB().then(()=>{
   $('roll').scrollTop=(HI-1-76)*RH;loadAudioFiles();libInit();
+  if(new URLSearchParams(location.search).get('autoEmbed')==='1'){setView('auto');$('abar').style.display='flex'}
   if(__bgmChannel){setTimeout(()=>{try{__bgmChannel.postMessage({type:'project',sender:__bgmSyncId,data:snap()})}catch(_){}},120)}
 });;

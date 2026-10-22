@@ -1,6 +1,8 @@
 /* LMMS-inspired desktop/window layer. Existing DAW engine and editor controls remain intact. */
 (()=>{
-  if(new URLSearchParams(location.search).get('pianoEmbed')==='1'){document.documentElement.dataset.lmms='1';document.body.classList.add('piano-embed');return;}
+  const __params=new URLSearchParams(location.search);
+  if(__params.get('pianoEmbed')==='1'){document.documentElement.dataset.lmms='1';document.body.classList.add('piano-embed');return;}
+  if(__params.get('autoEmbed')==='1'){document.documentElement.dataset.lmms='1';document.body.classList.add('automation-embed');return;}
   const $=s=>document.querySelector(s);
   const main=$('main'), browser=$('aside'), editor=$('#rc'), header=$('header');
   if(!main||!browser||!editor||!header)return;
@@ -143,15 +145,19 @@
   songWinEl.appendChild(editor);
   const rollFrame=document.createElement('iframe');rollFrame.id='lmms-piano-frame';rollFrame.title='Piano Roll editor';const rollUrl=new URL(location.href);rollUrl.searchParams.set('pianoEmbed','1');rollFrame.src=rollUrl.href;
   rollWinEl.appendChild(rollFrame);
+  const autoWinEl=document.createElement('section');autoWinEl.id='lmms-auto-window';autoWinEl.className='lmms-editor-host';main.appendChild(autoWinEl);
+  const autoFrame=document.createElement('iframe');autoFrame.id='lmms-auto-frame';autoFrame.title='Automation editor';const autoUrl=new URL(location.href);autoUrl.searchParams.set('autoEmbed','1');autoFrame.src=autoUrl.href;autoWinEl.appendChild(autoFrame);
   const songWin=makeWindow(songWinEl,{id:'song-editor',title:'Song Editor',subtitle:'ARRANGEMENT',initial:{left:'264px',top:'8px',width:'min(900px, calc(100% - 280px))',height:'calc(100% - 46px)'},closeAction:()=>songWinEl.classList.add('lmms-hidden')});
-  const songBar=$('#sgbar'),autoBar=$('#abar');if(songBar)songWinEl.insertBefore(songBar,editor);if(autoBar)songWinEl.insertBefore(autoBar,editor);
+  const songBar=$('#sgbar'),autoBar=$('#abar');if(songBar){const openAutoBtn=document.createElement('button');openAutoBtn.id='sgOpenAutomation';openAutoBtn.textContent='オートメーションを開く ↗';openAutoBtn.title='オートメーションを独立ウィンドウで開く';openAutoBtn.addEventListener('click',()=>openAutomationWindow());songBar.appendChild(openAutoBtn);songWinEl.insertBefore(songBar,editor)}if(autoBar)autoWinEl.insertBefore(autoBar,autoFrame);
   const rollWin=makeWindow(rollWinEl,{id:'piano-roll',title:'Piano Roll',subtitle:'NOTE EDITOR',initial:{left:'310px',top:'42px',width:'min(1000px, calc(100% - 330px))',height:'min(760px, calc(100% - 80px))'},closeAction:()=>rollWinEl.classList.add('lmms-hidden')});
+  const autoWin=makeWindow(autoWinEl,{id:'automation-editor',title:'Automation Editor',subtitle:'CONTROL CURVES',initial:{left:'340px',top:'70px',width:'min(1050px, calc(100% - 360px))',height:'min(700px, calc(100% - 110px))'},closeAction:()=>autoWinEl.classList.add('lmms-hidden')});
   // Keep the existing SF2 library and custom-effect DOM/handlers intact; only host them in movable windows.
   const sf2WinEl=$('#sfl'),fxWinEl=$('#fxs');
   if(sf2WinEl)main.appendChild(sf2WinEl);
   if(fxWinEl)main.appendChild(fxWinEl);
   const sf2Win=sf2WinEl?makeWindow(sf2WinEl,{id:'sf2-library',title:'SF2 Library',subtitle:'SOUNDFONTS',initial:{left:innerWidth<=760?'8px':'180px',top:innerWidth<=760?'8px':'70px',width:'min(980px, calc(100% - 200px))',height:'min(720px, calc(100% - 100px))'},closeAction:()=>{sf2WinEl.hidden=true;document.body.classList.remove('fxopen');syncWindowButtons()}}):null;
   const fxWin=fxWinEl?makeWindow(fxWinEl,{id:'custom-effects',title:'Custom Effects',subtitle:'NODE WORKSPACE',initial:{left:innerWidth<=760?'8px':'220px',top:innerWidth<=760?'8px':'44px',width:'min(1100px, calc(100% - 240px))',height:'min(780px, calc(100% - 80px))'},closeAction:()=>{window.BGMNotpcCloseEffects?.();fxWinEl.hidden=true;document.body.classList.remove('fxopen');syncWindowButtons()}}):null;
+  function openAutomationWindow(selection){autoWin.restore();if(selection)try{autoFrame.contentWindow?.postMessage({type:'bgm-open-auto',selection},location.origin)}catch(_){}syncWindowButtons()}
   function openEditorView(view){
     if(view==='song'){
       const b=$('#vSong');if(b&&!b.classList.contains('on'))b.click();
@@ -162,14 +168,16 @@
     }
     syncWindowButtons();
   }
-  const task=document.createElement('div');task.id='lmmsTaskbar';task.innerHTML=`<button data-restore="browser">▤ My Samples</button><button data-restore="song">♫ Song Editor</button><button data-restore="roll">♫ Piano Roll</button><button data-restore="sf2">♫ SF2 Library</button><button data-restore="effects">◇ Custom FX</button><button data-restore="mixer">▥ FX Mixer</button><span class="lmms-task-spacer"></span>`;main.appendChild(task);
+  const task=document.createElement('div');task.id='lmmsTaskbar';task.innerHTML=`<button data-restore="browser">▤ My Samples</button><button data-restore="song">♫ Song Editor</button><button data-restore="roll">♫ Piano Roll</button><button data-restore="automation">⌁ Automation</button><button data-restore="sf2">♫ SF2 Library</button><button data-restore="effects">◇ Custom FX</button><button data-restore="mixer">▥ FX Mixer</button><span class="lmms-task-spacer"></span>`;main.appendChild(task);
   task.querySelector('[data-restore="browser"]').onclick=()=>browserWin.restore();
   task.querySelector('[data-restore="song"]').onclick=()=>openEditorView('song');
   task.querySelector('[data-restore="roll"]').onclick=()=>openEditorView('roll');
+  task.querySelector('[data-restore="automation"]').onclick=()=>openAutomationWindow();
   task.querySelector('[data-restore="sf2"]').onclick=()=>sf2Win?.restore();
   task.querySelector('[data-restore="effects"]').onclick=()=>fxWin?.restore();
   task.querySelector('[data-restore="mixer"]').onclick=()=>{const mx=$('#mx');if(mx){mx.classList.remove('hid');mx.scrollIntoView({block:'nearest'})}};
   function syncWindowButtons(){
+    task.querySelector('[data-restore="automation"]')?.classList.toggle('active',!autoWinEl.classList.contains('lmms-hidden')&&!autoWinEl.classList.contains('lmms-minimized'));
     task.querySelector('[data-restore="browser"]')?.classList.toggle('active',!browser.classList.contains('lmms-hidden')&&!browser.classList.contains('lmms-minimized'));
     task.querySelector('[data-restore="song"]')?.classList.toggle('active',!songWinEl.classList.contains('lmms-hidden')&&!songWinEl.classList.contains('lmms-minimized'));
     task.querySelector('[data-restore="roll"]')?.classList.toggle('active',!rollWinEl.classList.contains('lmms-hidden')&&!rollWinEl.classList.contains('lmms-minimized'));
@@ -181,9 +189,9 @@
   if(vs&&!vs.classList.contains('on'))vs.click();
   vs?.addEventListener('click',()=>setTimeout(()=>{if(!vs.classList.contains('on'))vs.click()},0));
   vr?.addEventListener('click',()=>setTimeout(()=>{openEditorView('roll');if(vs&&!vs.classList.contains('on'))vs.click()},0));
-  window.__BGMOnViewChanged=v=>{if(v==='roll'){setTimeout(()=>{openEditorView('roll');if(vs&&!vs.classList.contains('on'))vs.click()},0)}};
+  window.__BGMOnViewChanged=v=>{if(v==='roll'){setTimeout(()=>{openEditorView('roll');if(vs&&!vs.classList.contains('on'))vs.click()},0)}else if(v==='auto'){setTimeout(()=>{openAutomationWindow(window.__BGMGetAutoSelection?.());if(vs&&!vs.classList.contains('on'))vs.click()},0)}};
   const trBtn=document.querySelector('#dock [data-pn="tr"]');if(trBtn)trBtn.addEventListener('click',()=>{browser.classList.toggle('lmms-hidden',browser.classList.contains('hid'));syncWindowButtons()});
-  addEventListener('resize',()=>{const r=main.getBoundingClientRect();[browser,songWinEl,rollWinEl,sf2WinEl,fxWinEl].filter(Boolean).forEach(el=>{if(el.classList.contains('lmms-maximized'))return;const left=parseFloat(el.style.left)||0,top=parseFloat(el.style.top)||0;if(left>r.width-90)el.style.left=Math.max(0,r.width-220)+'px';if(top>r.height-40)el.style.top=Math.max(0,r.height-120)+'px'});});
-  window.BGMNotpcLMMSUI={restoreBrowser:browserWin.restore,restoreSongEditor:()=>openEditorView('song'),restorePianoRoll:()=>openEditorView('roll'),restoreSF2Library:()=>{if(sf2Win){sf2Win.restore();sf2WinEl.hidden=false;syncWindowButtons()}},restoreEffects:()=>{if(fxWin){fxWin.restore();fxWinEl.hidden=false;syncWindowButtons()}},syncWindowButtons,openSongEditor:()=>openEditorView('song'),openPianoRoll:()=>openEditorView('roll')};
+  addEventListener('resize',()=>{const r=main.getBoundingClientRect();[browser,songWinEl,rollWinEl,autoWinEl,sf2WinEl,fxWinEl].filter(Boolean).forEach(el=>{if(el.classList.contains('lmms-maximized'))return;const left=parseFloat(el.style.left)||0,top=parseFloat(el.style.top)||0;if(left>r.width-90)el.style.left=Math.max(0,r.width-220)+'px';if(top>r.height-40)el.style.top=Math.max(0,r.height-120)+'px'});});
+  window.BGMNotpcLMMSUI={restoreBrowser:browserWin.restore,restoreSongEditor:()=>openEditorView('song'),restorePianoRoll:()=>openEditorView('roll'),restoreAutomation:()=>openAutomationWindow(),restoreSF2Library:()=>{if(sf2Win){sf2Win.restore();sf2WinEl.hidden=false;syncWindowButtons()}},restoreEffects:()=>{if(fxWin){fxWin.restore();fxWinEl.hidden=false;syncWindowButtons()}},syncWindowButtons,openSongEditor:()=>openEditorView('song'),openPianoRoll:()=>openEditorView('roll')};
   const name=$('#projectName');const label=$('#lmmsProjectLabel');const syncName=()=>{if(label)label.textContent=(name?.value||'BGM').slice(0,28)};name?.addEventListener('input',syncName);syncName();
 })();
