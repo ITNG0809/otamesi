@@ -76,6 +76,66 @@
   }
   const browserWin=makeWindow(browser,{id:'browser',title:'Browser',subtitle:'MY SAMPLES / TRACKS',initial:{left:'8px',top:'8px',width:'246px',height:'calc(100% - 46px)'},closeAction:()=>browser.classList.add('lmms-hidden')});
 
+
+  // Browser redesign: retain the original track/audio containers and their handlers.
+  // Only add presentation controls around them; never replace the engine-owned DOM.
+  const browserTitle=browser.querySelector('.lmms-titlebar');
+  const browserActions=browser.querySelector('.aact');
+  const trackList=browser.querySelector('#tl');
+  const audioList=browser.querySelector('#atl');
+  if(browserTitle&&browserActions&&trackList&&audioList){
+    const browserTools=document.createElement('div');
+    browserTools.className='lmms-browser-tools';
+    browserTools.innerHTML=`
+      <div class="lmms-browser-search"><span aria-hidden="true">⌕</span><input id="lmmsBrowserSearch" type="search" placeholder="Search tracks and audio…" aria-label="トラックと音声を検索"><button type="button" id="lmmsBrowserClear" title="検索をクリア">×</button></div>
+      <div class="lmms-browser-tabs" role="tablist" aria-label="Browser category">
+        <button type="button" class="active" data-browser-tab="all" role="tab" aria-selected="true">All</button>
+        <button type="button" data-browser-tab="tracks" role="tab" aria-selected="false">Tracks</button>
+        <button type="button" data-browser-tab="audio" role="tab" aria-selected="false">Audio</button>
+      </div>`;
+    browserActions.insertAdjacentElement('afterend',browserTools);
+    const trackCaption=document.createElement('div');
+    trackCaption.className='lmms-browser-section-title';
+    trackCaption.innerHTML='<span class="lmms-browser-section-icon">♫</span><span>INSTRUMENT TRACKS</span><span class="lmms-browser-count" id="lmmsTrackCount">0</span>';
+    trackList.insertAdjacentElement('beforebegin',trackCaption);
+    const audioCaption=document.createElement('div');
+    audioCaption.className='lmms-browser-section-title lmms-audio-section-title';
+    audioCaption.innerHTML='<span class="lmms-browser-section-icon">▧</span><span>AUDIO CLIPS</span><span class="lmms-browser-count" id="lmmsAudioCount">0</span>';
+    audioList.insertAdjacentElement('beforebegin',audioCaption);
+    let browserTab='all';
+    const search=browserTools.querySelector('#lmmsBrowserSearch');
+    const clear=browserTools.querySelector('#lmmsBrowserClear');
+    function refreshBrowser(){
+      const q=(search.value||'').trim().toLocaleLowerCase();
+      const rows=(root)=>[...root.querySelectorAll('.trk')];
+      const tracks=rows(trackList),audio=rows(audioList);
+      tracks.forEach(row=>row.hidden=!!q&&!row.textContent.toLocaleLowerCase().includes(q));
+      audio.forEach(row=>row.hidden=!!q&&!row.textContent.toLocaleLowerCase().includes(q));
+      trackCaption.hidden=browserTab==='audio';
+      trackList.hidden=browserTab==='audio';
+      audioCaption.hidden=browserTab==='tracks';
+      audioList.hidden=browserTab==='tracks';
+      if(browserTab==='tracks')trackList.style.flex='1 1 auto';
+      else if(browserTab==='audio')audioList.style.flex='1 1 auto';
+      else {trackList.style.flex='1 1 auto';audioList.style.flex='0 1 auto'}
+      const tc=browser.querySelector('#lmmsTrackCount'),ac=browser.querySelector('#lmmsAudioCount');
+      if(tc)tc.textContent=String(tracks.filter(x=>!x.hidden).length);
+      if(ac)ac.textContent=String(audio.filter(x=>!x.hidden).length);
+    }
+    search.addEventListener('input',refreshBrowser);
+    clear.addEventListener('click',()=>{search.value='';search.focus();refreshBrowser()});
+    browserTools.querySelectorAll('[data-browser-tab]').forEach(btn=>btn.addEventListener('click',()=>{
+      browserTab=btn.dataset.browserTab;
+      browserTools.querySelectorAll('[data-browser-tab]').forEach(b=>{const on=b===btn;b.classList.toggle('active',on);b.setAttribute('aria-selected',String(on))});
+      refreshBrowser();
+    }));
+    // The original engine rebuilds rows after add/delete/rename. Observe only for counts/filtering.
+    const browserObserver=new MutationObserver(refreshBrowser);
+    browserObserver.observe(trackList,{childList:true,subtree:true});
+    browserObserver.observe(audioList,{childList:true,subtree:true});
+    refreshBrowser();
+  }
+
   // Two real editor instances: the original editor engine stays live in Song Editor,
   // while a second full app instance runs the original Piano Roll input handlers in an iframe.
   const songWinEl=document.createElement('section');songWinEl.id='lmms-song-window';songWinEl.className='lmms-editor-host';main.appendChild(songWinEl);
