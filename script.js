@@ -376,9 +376,6 @@ $('add').onclick=()=>{pushUndo();S.tracks.push(newTrack(S.tracks.length));sel=S.
 $('del').onclick=delSel;
 $('undo').onclick=()=>{if(!undo.length)return;redo.push(snap());restore(undo.pop())};
 $('redo').onclick=()=>{if(!redo.length)return;undo.push(snap());restore(redo.pop())};
-// Piano-roll-local undo/redo controls share the same project history as the main toolbar.
-$('rollUndo').onclick=()=>$('undo').click();
-$('rollRedo').onclick=()=>$('redo').click();
 $('save').onclick=saveDB;
 $('exp').onclick=()=>dl((currentProjectName().replace(/[\\/:*?"<>|]/g,'_')||'BGM')+'.json',snap(),'application/json');
 $('imp').onclick=()=>$('file').click();

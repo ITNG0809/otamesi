@@ -74,7 +74,7 @@
     bar.querySelector('.lmms-close').onclick=()=>{if(closeAction)closeAction();else el.classList.add('lmms-hidden');syncWindowButtons()};
     return {el,bar,restore:()=>{el.classList.remove('lmms-hidden','lmms-minimized','hid');front();syncWindowButtons()}};
   }
-  const browserWin=makeWindow(browser,{id:'browser',title:'My Samples',subtitle:'BROWSER',initial:{left:'8px',top:'8px',width:'246px',height:'calc(100% - 46px)'},closeAction:()=>browser.classList.add('lmms-hidden')});
+  const browserWin=makeWindow(browser,{id:'browser',title:'Browser',subtitle:'MY SAMPLES / TRACKS',initial:{left:'8px',top:'8px',width:'246px',height:'calc(100% - 46px)'},closeAction:()=>browser.classList.add('lmms-hidden')});
 
   // Two real editor instances: the original editor engine stays live in Song Editor,
   // while a second full app instance runs the original Piano Roll input handlers in an iframe.
