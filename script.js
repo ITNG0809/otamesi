@@ -7,14 +7,14 @@ let ctx=null,master=null,nextBeat=0,nextTime=0,startT=0,timer=null;
 const $=id=>document.getElementById(id);
 const TCOL=['#2f6fed','#e5484d','#2da44e','#d4a017','#8957e5','#0aa5a5','#e0702d','#d6409f'];
 const newTrack=(i)=>({name:'Track '+(i+1),wave:'sawtooth',vol:.7,mute:false,solo:false,cut:6000,sf:null,pan:0,fx:[],color:TCOL[i%TCOL.length],id:uid(),notes:[]});
-const fresh=()=>{const P={id:uid(),name:'Pattern 1',color:TCOL[0],len:16,notes:[]};return{v:1,projectName:'BGM',bpm:120,len:LEN,tracks:[newTrack(0)],patterns:[P],place:[{id:uid(),pid:P.id,ti:0,s:0,l:16,w:4}],edit:P.id}};
+const fresh=()=>{const P={id:uid(),name:'Pattern 1',color:TCOL[0],len:16,notes:[]};return{v:1,projectName:'BGM',bpm:120,len:LEN,tracks:[newTrack(0)],patterns:[P],place:[{id:uid(),pid:P.id,ti:0,s:0,l:16,w:4}],edit:P.id,master:.8,autos:[],autotr:[],aplace:[]}};
 S=fresh();
 
 /* ---------- audio ---------- */
 function initAudio(){
   if(ctx){if(ctx.state!=='running')ctx.resume();return}
   ctx=new (window.AudioContext||window.webkitAudioContext)();
-  const c=ctx.createDynamicsCompressor();master=ctx.createGain();master.gain.value=.8;master.connect(c);c.connect(ctx.destination);an=ctx.createAnalyser();c.connect(an);meter();ensureWL(ctx).then(rebuildAll).catch(()=>{});
+  const c=ctx.createDynamicsCompressor();master=ctx.createGain();master.gain.value=S.master==null?.8:S.master;master.connect(c);c.connect(ctx.destination);an=ctx.createAnalyser();c.connect(an);meter();ensureWL(ctx).then(rebuildAll).catch(()=>{});
   ctx.resume();
 }
 function voice(t,p,v,when,dur){PC=(VB==null)?null:pitchCurve(t,VB,dur/spb());if(PA&&PA.p){const av=patAutoVal(PA.p,PA.b,'vol');v=Math.max(0,Math.min(127,v*av));const ev=patAutoVal(PA.p,PA.b,'echo');try{const ch=getCh(t);ch.eg.gain.setValueAtTime(Math.max(0,Math.min(1,ev)),when)}catch(_){}}if(t.sf&&sfRes(t))sfVoice(t,p,v,when,dur);else synthVoice(t,p,v,when,dur);PC=null;PA=null}
@@ -22,7 +22,7 @@ function synthVoice(t,p,v,when,dur){
   const o=ctx.createOscillator(),f=ctx.createBiquadFilter(),g=ctx.createGain();
   o.type=t.wave;o.frequency.value=440*Math.pow(2,(p-69)/12);if(PC)applyDet(o.detune,when,PC);
   f.type='lowpass';f.frequency.value=t.cut;
-  const pk=t.vol*(v/127)*.35,A=.01,R=.12,end=when+Math.max(dur,.05);
+  const pk=(v/127)*.35,A=.01,R=.12,end=when+Math.max(dur,.05);
   g.gain.setValueAtTime(0,when);g.gain.linearRampToValueAtTime(pk,when+A);
   g.gain.setValueAtTime(pk*.8,Math.max(end,when+A));g.gain.linearRampToValueAtTime(0,end+R);
   o.connect(f);f.connect(g);g.connect(chIn(t));o.start(when);o.stop(end+R+.02);
@@ -39,7 +39,7 @@ function schedule(){
     }
     if(!blockPlayback){
       for(const tr of AT())for(const c of tr.clips)if(c.s>=b0-1e-6&&c.s<b0+SNAP-1e-6)startClip(c,tr,nextTime+(c.s-b0)*spb(),c.o,Math.min(c.d,(S.len-c.s)*spb()),true);
-      schedAuto(b0,nextTime,spb());
+      try{schedAuto(b0,nextTime,spb());schedFxAuto(b0,nextTime,spb())}catch(err){console.warn('automation',err)}
     }
     nextTime+=SNAP*spb();nextBeat+=SNAP;
     if(nextBeat>=end-1e-6){
@@ -80,7 +80,7 @@ const snap=()=>JSON.stringify(S,function(k,v){return(k==='notes'&&this&&this.wav
 function pushUndo(){undo.push(snap());if(undo.length>100)undo.shift();redo=[]}
 function restore(j){S=JSON.parse(j);normS();if(!S.projectName)S.projectName='BGM';sel=Math.min(sel,S.tracks.length-1);selNote=null;selSet.clear();$('bpm').value=S.bpm;updateTabTitle();renderTracks();draw();dirty()}
 let saveT=null;
-function dirty(){NC=null;AC=null;$('st').textContent='未保存の変更あり';clearTimeout(saveT);saveT=setTimeout(saveDB,800);window.__BGMQueueSharedSync?.()}
+function dirty(){NC=null;AC=null;ADC=new Map();try{refreshAutoMarks()}catch(_){}$('st').textContent='未保存の変更あり';clearTimeout(saveT);saveT=setTimeout(saveDB,800);window.__BGMQueueSharedSync?.()}
 const dbp=new Promise((res,rej)=>{
   if(!window.indexedDB)return rej(new Error('IndexedDB非対応'));
   const r=indexedDB.open('browser-daw',3);r.onupgradeneeded=()=>{const d=r.result;for(const n of ['p','a','sfl','sfb'])if(!d.objectStoreNames.contains(n))d.createObjectStore(n)};
@@ -112,9 +112,10 @@ function renderTracks(){
     <div class="r"><button data-a="mute" class="${t.mute?'on':''}">M</button><button data-a="solo" class="${t.solo?'on':''}">S</button></div>`;
     d.querySelector('select').value=t.wave;
     d.onclick=e=>{if(e.target.closest('[data-a],input,select,.dd'))return;sel=i;selNote=null;selSet.clear();renderTracks();draw()};
+    t.id=t.id||uid();markAuto(d.querySelector('[data-k="vol"]'),'trk:'+t.id+':vol');
     d.querySelectorAll('[data-k]').forEach(el=>{
       el.onfocus=()=>{sel=i;draw()};
-      el.oninput=()=>{const k=el.dataset.k;t[k]=el.type==='range'?+el.value:el.value;dirty();if(k==='color'||k==='name')draw()};
+      el.oninput=()=>{const k=el.dataset.k;t[k]=el.type==='range'?+el.value:el.value;if(k==='vol'&&ctx&&!AUTOLIVE.has('trk:'+t.id+':vol'))getCh(t).in.gain.value=t.vol;dirty();if(k==='color'||k==='name')draw()};
       el.onchange=()=>{if(el.tagName==='SELECT'){initAudio();voice(t,60,100,ctx.currentTime,.3)}};
     });
     d.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{
@@ -473,7 +474,7 @@ function sfVoice(t,p,v,when,dur){
     const rate=Math.pow(2,((p-z.root)*100+z.tune)/1200);src.playbackRate.value=rate;if(PC)applyDet(src.detune,when,PC);
     if(z.loop&&s.el>s.sl+8){src.loop=true;src.loopStart=(s.sl-s.start)/ab.sampleRate;src.loopEnd=(s.el-s.start)/ab.sampleRate}
     const g=ctx.createGain(),pn=ctx.createStereoPanner();pn.pan.value=Math.max(-1,Math.min(1,z.pan/500));
-    const peak=t.vol*Math.pow(v/127,2)*Math.pow(10,-z.att/200)*.6,lvl=Math.pow(10,-z.sus/200);
+    const peak=Math.pow(v/127,2)*Math.pow(10,-z.att/200)*.6,lvl=Math.pow(10,-z.sus/200);
     let end=when+Math.max(dur,.05);if(!z.loop)end=Math.max(end,when+Math.min(ab.duration/rate,1.5));
     const ta=when+Math.max(z.atk,.003);
     g.gain.setValueAtTime(0,when);g.gain.linearRampToValueAtTime(peak,ta);
@@ -528,7 +529,7 @@ function mkFx(type,p){
  {const h0=h;h=q=>h0(type==='custom'?q:clampP(type,q))}
  h(p);return{I,O,h,sy,cu,bp:v=>{byp=v;ap()},ds:()=>{dsp.forEach(g=>{try{g()}catch(e){}});try{I.disconnect();O.disconnect()}catch(e){}}}}
 let CH=new WeakMap(),FXN=new WeakMap();
-function getCh(t){let c=CH.get(t);if(!c){c={in:ctx.createGain(),pan:ctx.createStereoPanner(),f:[],vg:ctx.createGain(),eg:ctx.createGain()};c.pan.connect(c.vg);c.vg.connect(master);c.eg.gain.value=0;c.ec=mkFx('delay',{mix:1,time:.3,fb:.35});c.vg.connect(c.eg);c.eg.connect(c.ec.I);c.ec.O.connect(master);CH.set(t,c);rebuild(t)}return c}
+function getCh(t){let c=CH.get(t);if(!c){c={in:ctx.createGain(),pan:ctx.createStereoPanner(),f:[],vg:ctx.createGain(),eg:ctx.createGain()};c.in.gain.value=t.vol==null||!isFinite(+t.vol)?.7:+t.vol;c.pan.connect(c.vg);c.vg.connect(master);c.eg.gain.value=0;c.ec=mkFx('delay',{mix:1,time:.3,fb:.35});c.vg.connect(c.eg);c.eg.connect(c.ec.I);c.ec.O.connect(master);CH.set(t,c);rebuild(t)}return c}
 const chIn=t=>getCh(t).in;
 const MIXP=[0,1,1,.01,'ミックス'],SYN=[0,1,0,1,'テンポ同期',['OFF','ON']],SHP=[0,2,0,1,'波形',['サイン','三角','矩形']];
 Object.assign(FXD,{
@@ -626,17 +627,19 @@ function rebuild(t){if(!ctx)return;const c=getCh(t);c.in.disconnect();c.f.forEac
 function renderMx(){const m=$('mx'),t=S.tracks[sel];m.innerHTML='';t.fx=t.fx||[];
  const h=document.createElement('div');h.className='fx';
  h.innerHTML='<div class="h"><b>'+t.name.replace(/[<>&"]/g,'')+' のミキサー</b></div><label>パン <input type="range" min="-1" max="1" step=".05" value="'+(t.pan||0)+'"></label><select><option value="">＋エフェクト追加</option>'+Object.keys(FXD).filter(k=>k!=='custom').map(k=>'<option value="'+k+'">'+FXD[k][0]+'</option>').join('')+cfxOptions()+'</select><button data-st="1">★ 自作エフェクト作成</button><span style="color:var(--mut)">上から順に処理されます</span>';
- h.querySelector('input').oninput=e=>{t.pan=+e.target.value;if(ctx)getCh(t).pan.pan.value=t.pan;dirty()};
+ t.id=t.id||uid();markAuto(h.querySelector('input'),'trk:'+t.id+':pan');
+ h.querySelector('input').oninput=e=>{t.pan=+e.target.value;if(ctx&&!AUTOLIVE.has('trk:'+t.id+':pan'))getCh(t).pan.pan.value=t.pan;dirty()};
  h.querySelector('select').onchange=async e=>{const k=e.target.value;if(!k)return;
   if(k.startsWith('custom:')){const cid=k.slice(7),cf=S.cfx.find(x=>x.id===cid);
     if(cf&&cfxUsesWL(cf)){try{initAudio();await ensureWL(ctx)}catch(er){alert('AudioWorkletを使えないため、このエフェクトは追加できません: '+er.message);renderMx();return}}
-    pushUndo();t.fx.push({type:'custom',p:{mix:cf?cf.mix:1,cid},on:true});rebuild(t);renderMx();dirty();return}
+    pushUndo();t.fx.push({id:uid(),type:'custom',p:{mix:cf?cf.mix:1,cid},on:true});rebuild(t);renderMx();dirty();return}
   if(WLT.has(k)){try{initAudio();await ensureWL(ctx)}catch(er){alert('このブラウザではAudioWorkletを使えないため、このエフェクトは追加できません: '+er.message);renderMx();return}}
-  pushUndo();t.fx.push({type:k,p:defP(k),on:true});rebuild(t);renderMx();dirty()};
+  pushUndo();t.fx.push({id:uid(),type:k,p:defP(k),on:true});rebuild(t);renderMx();dirty()};
  h.querySelector('[data-st]').onclick=()=>openStudio();m.appendChild(h);
- t.fx.forEach((e,i)=>{const d=document.createElement('div');d.className='fx';
+ t.fx.forEach((e,i)=>{const d=document.createElement('div');d.className='fx';e.id=e.id||uid();
   d.innerHTML='<div class="h"><b>'+(i+1)+'. '+fxName(e)+'</b>'+(e.type==='custom'?'<button data-o="3" title="スタジオで編集">✎</button>':'')+'<button data-o="1" title="ON/OFF" class="'+(e.on===false?'':'on')+'">ON</button><button data-o="2" title="初期値に戻す">↺</button><button data-m="-1">◀</button><button data-m="1">▶</button><button data-m="0">✕</button></div>'+
    Object.entries(fxParams(e)).map(([k,v])=>'<label>'+v[4]+' <span class="fv">'+fmtP(e.p[k]??v[2],v)+'</span><input type="range" data-k="'+k+'" min="'+v[0]+'" max="'+v[1]+'" step="'+v[3]+'" value="'+(e.p[k]??v[2])+'"></label>').join('');
+  d.querySelectorAll('[data-k]').forEach(r=>markAuto(r,'fx:'+t.id+':'+e.id+':'+r.dataset.k));markAuto(d.querySelector('[data-o="1"]'),'fx:'+t.id+':'+e.id+':on');
   d.querySelectorAll('[data-k]').forEach(r=>r.oninput=()=>{e.p[r.dataset.k]=+r.value;const sp=r.parentNode.querySelector('.fv');if(sp)sp.textContent=fmtP(+r.value,fxParams(e)[r.dataset.k]);if(ctx)fxNode(e).h(Object.assign(defP(e.type),e.p));dirty()});
   d.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>{const mv=+b.dataset.m;pushUndo();
    if(mv===0){const dn=FXN.get(t.fx[i]);if(dn&&dn.ds)dn.ds();FXN.delete(t.fx[i]);t.fx.splice(i,1)}else{const j=i+mv;if(j<0||j>=t.fx.length)return;[t.fx[i],t.fx[j]]=[t.fx[j],t.fx[i]]}
@@ -672,10 +675,16 @@ async function renderMix(sr){ // 既存のオフライン描画(再生と同じ 
   try{
     const oc=new OfflineAudioContext(2,Math.ceil(dur*sr),sr);if(usesWL())await ensureWL(oc);
     ctx=oc;an=null;CH=new WeakMap();FXN=new WeakMap();AG=new WeakMap();
-    const cm=oc.createDynamicsCompressor();master=oc.createGain();master.gain.value=.8;master.connect(cm);cm.connect(oc.destination);
+    const cm=oc.createDynamicsCompressor();master=oc.createGain();master.gain.value=S.master==null?.8:S.master;master.connect(cm);cm.connect(oc.destination);
     for(const e of songNotes())if(audible(e.t)){VB=e.s;voice(e.t,e.p,e.v,.05+e.s*sp,e.d*sp);VB=null}
     for(const tr of AT()){if(!audA(tr))continue;for(const c of tr.clips)startClip(c,tr,.05+c.s*sp,c.o,Math.min(c.d,Math.max(0,(S.len-c.s)*sp)),false)}
-    for(let b=0;b<S.len-1e-9;b+=SNAP)schedAuto(b,.05+b*sp,sp);
+    const svL=AUTOLIVE,svF=FXLIVE;AUTOLIVE=new Set();FXLIVE=new Set();
+    try{for(let b=0;b<S.len-1e-9;b+=SNAP)schedAuto(b,.05+b*sp,sp)}finally{AUTOLIVE=svL}
+    if([...autoIdx().keys()].some(k=>k[0]==='f')){ // エフェクトのオートメーション: 一定間隔で処理を止めて値を更新
+      const OCH=CH,OFX=FXN,OM=master,OL=FXLIVE,qn=128/sr,used=new Set(),step=SNAP/2;
+      const at=bb=>{const k={ctx,master,an,CH,FXN,FL:FXLIVE};ctx=oc;master=OM;an=null;CH=OCH;FXN=OFX;FXLIVE=OL;try{applyFxAuto(bb)}catch(er){console.warn(er)}finally{ctx=k.ctx;master=k.master;an=k.an;CH=k.CH;FXN=k.FXN;FXLIVE=k.FL}};
+      at(0);for(let b=step;b<S.len-1e-9;b+=step){const qi=Math.ceil((.05+b*sp)/qn);if(used.has(qi))continue;used.add(qi);const bb=b;oc.suspend(qi*qn).then(()=>{at(bb);oc.resume()}).catch(()=>{})}}
+    FXLIVE=svF;
     p=oc.startRendering();
   }finally{ctx=sv.ctx;master=sv.master;an=sv.an;CH=sv.CH;FXN=sv.FXN;AG=sv.AG}
   return await p}
@@ -957,7 +966,7 @@ $('patAuto').onclick=togglePatternAutomation;$('patAutoKind').onchange=e=>{PAKin
 /* ---------- パターン / ソングエディター ---------- */
 let EP=null,bufObj=null,NC=null,VIEW='roll',sSel=null,sdrag=null,lastTap={pl:null,t:0};const SRH=(window.matchMedia&&matchMedia('(pointer:coarse)').matches)?34:24,svTop={roll:(HI-1-76)*RH,song:0},svLeft={roll:0,song:0};
 function uid(){return Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-3)}
-const contentH=()=>VIEW==='song'?S.tracks.length*SRH+RULER:VIEW==='auto'?roll.clientHeight:ROWS*RH+RULER;
+const contentH=()=>VIEW==='song'?(S.tracks.length+S.autotr.length)*SRH+RULER:VIEW==='auto'?roll.clientHeight:ROWS*RH+RULER;
 function newPattern(color){return{id:uid(),name:'Pattern '+(S.patterns.length+1),color:color||TCOL[0],len:16,notes:[],automation:{kind:'vol',curves:{vol:[],pitch:[],echo:[]}}}}
 function fixPatterns(){try{
   S.tracks.forEach((t,i)=>{t.color=t.color||TCOL[i%TCOL.length];t.id=t.id||uid()});
@@ -991,16 +1000,16 @@ window.__BGMRenderForView=function(v){
   finally{VIEW=prev;roll.scrollTop=top;roll.scrollLeft=left}
 };
 function drawSong(){
-  const r=devicePixelRatio||1,vw=Math.max(1,roll.clientWidth),vh=Math.max(1,roll.clientHeight),W=S.len*BW,H=S.tracks.length*SRH,sx=roll.scrollLeft,sy=roll.scrollTop;
+  const r=devicePixelRatio||1,vw=Math.max(1,roll.clientWidth),vh=Math.max(1,roll.clientHeight),W=S.len*BW,H=(S.tracks.length+S.autotr.length)*SRH,sx=roll.scrollLeft,sy=roll.scrollTop;
   sz.style.width=W+'px';sz.style.height=(H+RULER)+'px';
   const cw=Math.round(vw*r),chh=Math.round(vh*r);if(cv.width!==cw||cv.height!==chh){cv.width=cw;cv.height=chh;cv.style.width=vw+'px';cv.style.height=vh+'px'}
   const C={bg:css('--bg'),panel:css('--panel'),fg:css('--fg'),mut:css('--mut'),line:css('--line'),beat:css('--beat'),bar:css('--bar'),black:css('--black')};
   g2.setTransform(r,0,0,r,0,0);g2.globalAlpha=1;g2.lineWidth=1;g2.fillStyle=C.bg;g2.fillRect(0,0,vw,vh);
   const nb=S.len/4,b0=Math.max(0,Math.floor(sx/BW/4)),b1=Math.min(nb,Math.ceil((sx+vw)/BW/4)),x1=Math.min(W,sx+vw);
   g2.save();g2.beginPath();g2.rect(0,RULER,vw,vh-RULER);g2.clip();g2.translate(-sx,RULER-sy);
-  for(let i=0;i<S.tracks.length;i++){g2.fillStyle=i>=S.tracks.length?C.black:(i%2?C.black:C.panel);g2.globalAlpha=i>=S.tracks.length?.6:1;g2.fillRect(sx,i*SRH,x1-sx,SRH);g2.globalAlpha=1}
+  for(let i=0;i<S.tracks.length+S.autotr.length;i++){g2.fillStyle=i>=S.tracks.length?C.black:(i%2?C.black:C.panel);g2.globalAlpha=i>=S.tracks.length?.6:1;g2.fillRect(sx,i*SRH,x1-sx,SRH);g2.globalAlpha=1}
   for(let b=Math.max(0,Math.floor(sx/BW));b<=Math.min(S.len,Math.ceil((sx+vw)/BW));b++){const x=b*BW,isBar=b%4===0;g2.strokeStyle=isBar?C.bar:C.line;g2.globalAlpha=isBar?1:.4;g2.lineWidth=isBar?1.5:1;g2.beginPath();g2.moveTo(x+.5,0);g2.lineTo(x+.5,H);g2.stroke()}
-  g2.globalAlpha=1;g2.lineWidth=1;g2.strokeStyle=C.line;for(let i=0;i<S.tracks.length;i++){g2.beginPath();g2.moveTo(sx,(i+1)*SRH-.5);g2.lineTo(x1,(i+1)*SRH-.5);g2.stroke()}
+  g2.globalAlpha=1;g2.lineWidth=1;g2.strokeStyle=C.line;for(let i=0;i<S.tracks.length+S.autotr.length;i++){g2.beginPath();g2.moveTo(sx,(i+1)*SRH-.5);g2.lineTo(x1,(i+1)*SRH-.5);g2.stroke()}
   const P=new Map(S.patterns.map(p=>[p.id,p]));
   for(const q of S.place){const p=P.get(q.pid);if(!p)continue;const x=q.s*BW,w=qpx(q),rw=q.l*BW,y=q.ti*SRH+3,h=SRH-6;if(x>sx+vw||x+Math.max(w,rw)<sx)continue;
     // LMMS風パターンブロック：軽いグラデーション、上端ハイライト、暗い外枠。
@@ -1020,6 +1029,7 @@ function drawSong(){
     g2.save();g2.beginPath();g2.rect(x,y,w,h);g2.clip();g2.fillStyle='#fff';g2.font='bold 11px system-ui';g2.shadowColor='rgba(0,0,0,.6)';g2.shadowBlur=2;g2.fillText(fitText(g2,(ed?'✎ ':'')+p.name,Math.max(8,w-18)),Math.max(x,sx)+5,y+11);g2.restore();
     if(RANGEMODE){g2.fillStyle='#e0902d';g2.fillRect(x+rw-3,y-2,6,h+4);g2.fillStyle='#fff';g2.fillRect(x+rw-1,y+4,2,h-8)} // 再生範囲の取っ手(オレンジ)
     else if(sel){g2.fillStyle='rgba(255,255,255,.85)';g2.fillRect(x+w-6,y+4,2,h-8);g2.fillRect(x+w-10,y+4,2,h-8)}} // 表示幅の取っ手(右端)
+  drawAutoBlocks(g2,C,sx,vw);
   g2.fillStyle='#e5484d';g2.fillRect(playBeat*BW,0,2,H);
   g2.restore();
   g2.fillStyle=C.panel;g2.fillRect(0,0,vw,RULER);g2.strokeStyle=C.line;g2.beginPath();g2.moveTo(0,RULER-.5);g2.lineTo(vw,RULER-.5);g2.stroke();
@@ -1029,9 +1039,9 @@ function drawSong(){
     /* LMMS風のピンクSF2プラグインタイル */
     const ix=9,iy=y+Math.max(5,(SRH-22)/2);g2.fillStyle='#d96cb7';g2.fillRect(ix,iy,27,22);g2.strokeStyle='#f4b7e3';g2.lineWidth=1;g2.strokeRect(ix+.5,iy+.5,26,21);g2.fillStyle='#fff';g2.font='bold 9px system-ui';g2.textAlign='center';g2.fillText('SF2',ix+13.5,iy+14);g2.textAlign='left';
     g2.save();g2.beginPath();g2.rect(41,y,67,SRH);g2.clip();g2.fillStyle=C.fg;g2.font='bold 11px system-ui';g2.fillText(fitText(g2,t.name,62),42,y+SRH/2+4);g2.restore()});
-  S.autotr.forEach((r,i)=>{const y=(S.tracks.length+i)*SRH+RULER-sy;if(y+SRH<RULER||y>vh)return;const t=S.tracks.find(x=>x.id===r.tid);g2.fillStyle=C.panel;g2.globalAlpha=.98;g2.fillRect(0,y+3,112,SRH-6);g2.globalAlpha=1;g2.fillStyle=t?t.color:C.mut;g2.fillRect(0,y+3,4,SRH-6);
-    g2.save();g2.beginPath();g2.rect(8,y,100,SRH);g2.clip();g2.fillStyle=C.fg;g2.font='bold 10px system-ui';g2.fillText('⟲ '+(t?t.name:'?'),9,y+SRH/2+4);g2.restore()});
-  $('sgbar').querySelector('#pn').disabled=!sSel;
+  S.autotr.forEach((r,i)=>{const y=(S.tracks.length+i)*SRH+RULER-sy;if(y+SRH<RULER||y>vh)return;const t=null;g2.fillStyle=C.panel;g2.globalAlpha=.98;g2.fillRect(0,y+3,112,SRH-6);g2.globalAlpha=1;g2.fillStyle=C.mut;g2.fillRect(0,y+3,4,SRH-6);
+    g2.save();g2.beginPath();g2.rect(8,y,100,SRH);g2.clip();g2.fillStyle=C.fg;g2.font='bold 10px system-ui';g2.fillText('⟲ '+(r.name||'Auto'),9,y+SRH/2+4);g2.restore()});
+  $('sgbar').querySelector('#pn').disabled=!(sSel||selA);
 }
 function setView(v){if(v===VIEW)return;syncBuf();svTop[VIEW]=roll.scrollTop;svLeft[VIEW]=roll.scrollLeft;VIEW=v;selSet.clear();selNote=null;drag=null;
   $('vlw').style.display=v==='roll'?'':'none';$('sgbar').style.display=v==='song'?'flex':'none';$('abar').style.display=v==='auto'?'flex':'none';
@@ -1041,7 +1051,7 @@ function openPattern(q){const P=S.patterns.find(p=>p.id===q.pid);if(!P)return;sy
   setView('roll');renderTracks();draw();roll.scrollLeft=0;$('st').textContent='パターン「'+P.name+'」を編集中(ソング画面に戻るとブロックに反映されます)'}
 function fitSong(){let mx=0;for(const q of S.place)mx=Math.max(mx,q.s+q.l);for(const q of S.aplace)mx=Math.max(mx,q.s+q.l);if(mx>S.len)S.len=Math.min(MAXBARS*4,Math.ceil(mx/4)*4);fitLen()}
 const patOf=q=>q&&S.patterns.find(p=>p.id===q.pid);
-function syncSongBar(){const P=patOf(sSel);$('pn').value=P?P.name:'';if(P)$('pc').value=P.color}
+function syncSongBar(){const P=patOf(sSel),A=selA&&S.autos.find(x=>x.id===selA.aid);$('pn').value=P?P.name:A?A.name:'';$('pn').disabled=!(P||A);if(P)$('pc').value=P.color;else if(A)$('pc').value=A.color;if(typeof fillAkind==='function')fillAkind()}
 cv.addEventListener('pointerdown',e=>{if(VIEW!=='song')return;
   const rc=cv.getBoundingClientRect();if(e.clientY-rc.top<RULER){seekTo((e.clientX-rc.left+roll.scrollLeft)/BW);return}
   const{x,y}=pt(e),ri=Math.floor(y/SRH);if(ri<0||ri>=S.tracks.length)return;cv.setPointerCapture(e.pointerId);
@@ -1078,139 +1088,253 @@ function dupPl(indep){if(!sSel)return;const q0=sSel,P=patOf(q0);if(!P)return;if(
 function moveTrack(i,d){const j=i+d;if(j<0||j>=S.tracks.length)return;syncBuf();bufObj=null;[S.tracks[i],S.tracks[j]]=[S.tracks[j],S.tracks[i]];
   S.place.forEach(q=>{if(q.ti===i)q.ti=j;else if(q.ti===j)q.ti=i});if(sel===i)sel=j;else if(sel===j)sel=i;renderTracks();draw();dirty()}
 $('sgOpen').onclick=()=>{if(sSel)openPattern(sSel)};$('sgDup').onclick=()=>dupPl(false);$('sgCopy').onclick=()=>dupPl(true);$('sgDel').onclick=delPl;$('sgDelP').onclick=delPat;
-$('pn').oninput=e=>{const P=patOf(sSel);if(P){P.name=e.target.value||'Pattern';dirty();draw()}};
-$('pc').oninput=e=>{const P=patOf(sSel);if(P){P.color=e.target.value;dirty();draw()}};
+$('pn').oninput=e=>{const P=patOf(sSel),A=!P&&selA&&S.autos.find(x=>x.id===selA.aid);if(P){P.name=e.target.value||'Pattern';dirty();draw()}else if(A){A.name=e.target.value||'Automation';dirty();draw()}};
+$('pc').oninput=e=>{const P=patOf(sSel),A=!P&&selA&&S.autos.find(x=>x.id===selA.aid);if(P){P.color=e.target.value;dirty();draw()}else if(A){A.color=e.target.value;dirty();draw()}};
 $('plen').onchange=e=>{const n=Math.max(1,Math.min(64,Math.round(+e.target.value)||1));if(EP&&n*4!==EP.len){pushUndo();EP.len=n*4;dirty();draw()}};
 const _d2=delSel;delSel=function(){if(VIEW==='song'){delPl();return}_d2()};
 const _u2=dupSel;dupSel=function(){if(VIEW==='song'){dupPl(false);return}_u2()};
 $('del').onclick=delSel;$('dup').onclick=dupSel;
-/* ---------- オートメーション ---------- */
+/* ---------- オートメーション (LMMS方式) ----------
+   オートメーショントラック(S.autotr) … クリップを並べるだけの行。接続先は持たない。
+   オートメーションクリップ(S.autos)  … 制御点(クリップ先頭からの相対拍) + 補間方式 + 接続先パラメータID(target)。
+   配置(S.aplace)                      … クリップをソング上の時間(拍=4分音符単位)に置く。
+   制御点の値 v は「接続先パラメータの範囲(min〜max)を0〜1に正規化した値」。実値への変換は autoReal() が行う。
+   接続先ID: master:vol / trk:<トラックID>:vol|pan|echo|pitch / fx:<トラックID>:<エフェクトID>:on|<パラメータ名> */
 const ADEF={vol:1,echo:0,pitch:0},KN={vol:'音量',pitch:'ピッチ',echo:'エコー'},KC={vol:'#2f6fed',pitch:'#2da44e',echo:'#d4a017'};
-let GRID=.25,AC=null,EA=null,EQ=null,eaId=null,eqId=null,selA=null,asel=new Set(),ad=null,adr=null,ACLIP=null,lastTapA={q:null,t:0},VB=null,PC=null,AGON=true;
+const APCOL=['#2f6fed','#e5484d','#2da44e','#d4a017','#8957e5','#0aa5a5','#e0702d','#d6409f'];
+let OPENEV=null,GRID=.25,AC=null,ADC=new Map(),EA=null,EQ=null,eaId=null,eqId=null,selA=null,asel=new Set(),ad=null,adr=null,ACLIP=null,lastTapA={q:null,t:0},VB=null,PC=null,AGON=true,AUTOGEN=0,AUTOLIVE=new Set(),FXLIVE=new Set(),AVZ={lo:0,hi:1},ATSIG='';
 try{const sv=localStorage.getItem('daw-grid');if(sv&&[...$('grid').options].some(o=>o.value===sv)){$('grid').value=sv;GRID=+sv}}catch(_){}
 $('grid').onchange=e=>{GRID=+e.target.value;try{localStorage.setItem('daw-grid',e.target.value)}catch(_){}draw()};
-const aDef=a=>a.kind==='vol'?1:a.kind==='pitch'?.5:0;
+const aClamp=(v,a,b)=>v<a?a:v>b?b:v;
+const fmtGain=r=>Math.round(r*100)+'% ('+(r>0?(20*Math.log10(r)).toFixed(1):'-∞')+'dB)';
+const fmtPan=r=>Math.abs(r)<.005?'中央':(r<0?'L ':'R ')+Math.round(Math.abs(r)*100);
+const FXNOAUTO={reverb:{time:1}}; // 再生成が重いのでリアルタイム変更しない
+/* ---- パラメータ登録: 接続先IDから「現在値・最小/最大・単位・反映処理」を引く ---- */
+function buildDesc(pid){const p=String(pid||'').split(':');
+  if(p[0]==='master'&&p[1]==='vol')return{id:pid,label:'マスターボリューム',min:0,max:1.5,def:.8,unit:'%',man:()=>S.master==null?.8:S.master,ap:()=>master?master.gain:null,fmt:fmtGain};
+  const t=S.tracks.find(x=>x.id===p[1]);if(!t)return null;const tn=t.name||'トラック';
+  if(p[0]==='trk'){
+    if(p[2]==='vol')return{id:pid,label:tn+' / 音量',min:0,max:1,def:.7,unit:'%',man:()=>t.vol==null?.7:t.vol,ap:()=>ctx?getCh(t).in.gain:null,fmt:fmtGain};
+    if(p[2]==='pan')return{id:pid,label:tn+' / パン',min:-1,max:1,def:0,unit:'',man:()=>t.pan||0,ap:()=>ctx?getCh(t).pan.pan:null,fmt:fmtPan};
+    if(p[2]==='echo')return{id:pid,label:tn+' / エコー量',min:0,max:1,def:0,unit:'%',man:()=>0,ap:()=>ctx?getCh(t).eg.gain:null,fmt:r=>Math.round(r*100)+'%',echo:t};
+    if(p[2]==='pitch')return{id:pid,label:tn+' / ピッチベンド',note:'ノート発音時に反映',min:-12,max:12,def:0,unit:'半音',semi:true,man:()=>0,ap:null,fmt:r=>(r>0?'+':'')+r.toFixed(2)+'半音'};
+    return null}
+  if(p[0]==='fx'){const e=(t.fx||[]).find(x=>x.id===p[2]);if(!e||e.type==='custom'||!FXD[e.type])return null;const fi=t.fx.indexOf(e)+1,en=fi+'.'+((FXD[e.type][0])||e.type);
+    if(p[3]==='on')return{id:pid,label:tn+' / '+en+' / ON-OFF',min:0,max:1,def:1,unit:'',disc:true,man:()=>e.on===false?0:1,ap:null,fmt:r=>r>=.5?'ON':'OFF',fx:{t,e,name:'on'}};
+    const df=FXD[e.type][1][p[3]];if(!df||(FXNOAUTO[e.type]&&FXNOAUTO[e.type][p[3]]))return null;
+    return{id:pid,label:tn+' / '+en+' / '+(df[4]||p[3]),min:df[0],max:df[1],def:df[2],unit:'',disc:!!df[5],man:()=>e.p&&e.p[p[3]]!=null?+e.p[p[3]]:df[2],ap:null,fmt:r=>(Math.abs(r)>=100?Math.round(r):+r.toFixed(3))+'',fx:{t,e,name:p[3]}}}
+  return null}
+function autoDesc(pid,fresh){autoIdx();if(!fresh&&ADC.has(pid))return ADC.get(pid);const d=buildDesc(pid);if(!fresh)ADC.set(pid,d);return d}
+function autoParamList(){const L=[{id:'master:vol',label:'マスターボリューム'}];
+  for(const t of S.tracks){for(const k of ['vol','pan','echo','pitch']){const id='trk:'+t.id+':'+k,d=autoDesc(id,true);if(d)L.push({id,label:d.label+(d.note?'('+d.note+')':'')})}
+    (t.fx||[]).forEach(e=>{e.id=e.id||uid();if(e.type==='custom'||!FXD[e.type])return;for(const k of ['on',...Object.keys(FXD[e.type][1])]){const id='fx:'+t.id+':'+e.id+':'+k,d=autoDesc(id,true);if(d)L.push({id,label:d.label})}})}
+  return L}
+const aNorm=(d,r)=>d?aClamp((r-d.min)/((d.max-d.min)||1),0,1):.5;
+function autoReal(pid,a,n){const d=autoDesc(pid);if(!d)return n;if(d.semi)return(n-.5)*2*(a.range||12);let r=d.min+n*(d.max-d.min);if(d.disc&&d.fx&&d.fx.name!=='on')r=Math.round(r);return r}
+function autoNorm(pid,a,r){const d=autoDesc(pid);if(!d)return aClamp(r,0,1);if(d.semi)return aClamp(r/(2*(a.range||12))+.5,0,1);return aNorm(d,r)}
+const aDef=a=>{const d=a.target?autoDesc(a.target):null;if(d)return d.semi?.5:aNorm(d,d.man());return a.kind==='vol'?1:a.kind==='pitch'?.5:0};
+/* ---- 補間 (描画と再生で共通) ---- */
 function autoVal(a,x){const P=a.pts,n=P.length;if(!n)return aDef(a);if(x<=P[0].t)return P[0].v;if(x>=P[n-1].t)return P[n-1].v;
-  let i=0;while(i<n-2&&x>=P[i+1].t)i++;const p0=P[i],p1=P[i+1],dx=p1.t-p0.t;if(dx<=1e-9)return p1.v;const u=(x-p0.t)/dx;
-  if(a.mode!=='curve')return p0.v+(p1.v-p0.v)*u;
+  let i=0;while(i<n-2&&x>=P[i+1].t)i++;const p0=P[i],p1=P[i+1],dx=p1.t-p0.t;if(dx<=1e-9)return p1.v;
+  if(a.interp==='step')return p0.v;const u=(x-p0.t)/dx;
+  if(a.interp!=='smooth')return p0.v+(p1.v-p0.v)*u;
   const sl=j=>{const d=P[j+1].t-P[j].t;return d>1e-9?(P[j+1].v-P[j].v)/d:0};
   const tn=j=>{if(j===0)return sl(0);if(j===n-1)return sl(n-2);const A=sl(j-1),B=sl(j);return A*B<=0?0:2*A*B/(A+B)};
   const k=a.smooth==null?1:a.smooth,m0=tn(i)*k,m1=tn(i+1)*k,u2=u*u,u3=u2*u;
   return Math.max(0,Math.min(1,(2*u3-3*u2+1)*p0.v+(u3-2*u2+u)*dx*m0+(-2*u3+3*u2)*p1.v+(u3-u2)*dx*m1))}
-function autoIdx(){if(AC)return AC;AC=new Map();const A=new Map(S.autos.map(a=>[a.id,a])),R=new Map(S.autotr.map(a=>[a.id,a]));
-  for(const q of S.aplace){const a=A.get(q.aid),r=R.get(q.tr);if(!a||!r)continue;const k=r.tid+'|'+a.kind;if(!AC.has(k))AC.set(k,[]);AC.get(k).push({s:q.s,l:q.l,a})}return AC}
-function autoBlk(tid,kind,b){const L=autoIdx().get(tid+'|'+kind);if(!L)return null;let r=null;for(const e of L)if(b>=e.s&&b<e.s+e.l)r=e;return r||false}
-function autoAt(tid,kind,b){const r=autoBlk(tid,kind,b);if(r===null)return null;if(r===false)return ADEF[kind];const v=autoVal(r.a,Math.min(b-r.s,r.a.len));return kind==='pitch'?(v-.5)*2*r.a.range*100:v}
-function schedAuto(b0,when,sp){const idx=autoIdx();if(!idx.size)return;const b1=b0+SNAP-1e-6,t1=when+SNAP*sp;
-  for(const t of S.tracks){const hv=idx.has(t.id+'|vol'),he=idx.has(t.id+'|echo');if(!hv&&!he)continue;const c=getCh(t);
-    if(hv){c.vg.gain.setValueAtTime(autoAt(t.id,'vol',b0),when);c.vg.gain.linearRampToValueAtTime(autoAt(t.id,'vol',b1),t1)}
-    if(he){c.eg.gain.setValueAtTime(autoAt(t.id,'echo',b0),when);c.eg.gain.linearRampToValueAtTime(autoAt(t.id,'echo',b1),t1);
-      const rb=autoBlk(t.id,'echo',b0);if(rb)c.ec.h({mix:1,time:Math.max(.02,Math.min(1,rb.a.tm)),fb:Math.max(0,Math.min(.85,rb.a.fb))})}}}
-function resetAuto(){if(!ctx)return;for(const t of S.tracks){const c=CH.get(t);if(c&&c.vg){c.vg.gain.cancelScheduledValues(0);c.vg.gain.value=1;c.eg.gain.cancelScheduledValues(0);c.eg.gain.value=0}}}
-function pitchCurve(t,beat,db){const sp=spb(),n=Math.min(48,Math.max(2,Math.ceil((db+.5)/.125))),pts=[];let any=false;
-  for(let i=0;i<=n;i++){const off=Math.min(db+.5,i*.125),c=PA&&PA.p?patAutoPitch(PA.p,PA.b+off): (autoIdx().has(t.id+'|pitch')?autoAt(t.id,'pitch',beat+off):0);pts.push([off*sp,c]);if(Math.abs(c)>.01)any=true}return any?pts:null}
+function autoIdx(){if(AC)return AC;AC=new Map();ADC=new Map();const A=new Map(S.autos.map(a=>[a.id,a])),R=new Set(S.autotr.map(a=>a.id));
+  for(const q of S.aplace){const a=A.get(q.aid);if(!a||!R.has(q.tr)||!a.target)continue;if(!AC.has(a.target))AC.set(a.target,[]);AC.get(a.target).push({s:q.s,l:q.l,a,q})}return AC}
+/* 同一パラメータに複数クリップがある場合の規則:
+   1) 位置 b を含むクリップが複数 → 開始位置が最も遅いクリップが優先(同じ開始なら配置順で後のもの)
+   2) どのクリップにも含まれない → 直前に終わったクリップの終端値を保持(クリップの end==='reset' なら手動値へ戻る)
+   3) まだ1つも始まっていない → null(=手動値) */
+function pickClip(pid,b){const L=autoIdx().get(pid);if(!L)return null;let cov=null,en=null;
+  for(const e of L){const ee=e.s+e.l;if(b>=e.s&&b<ee){if(!cov||e.s>=cov.s)cov=e}else if(ee<=b){if(!en||ee>en.s+en.l||(ee===en.s+en.l&&e.s>=en.s))en=e}}
+  if(cov)return{e:cov,rel:b-cov.s};if(en&&en.a.end!=='reset')return{e:en,rel:en.l};return null}
+function evalPid(pid,b){const k=pickClip(pid,b);if(!k)return null;const a=k.e.a;return autoReal(pid,a,autoVal(a,Math.min(k.rel,a.len)))}
+/* ---- 再生: AudioParamへ(サンプル精度) ---- */
+function autoBreaks(L,b0,b1){const B=[b0];for(let k=1;k<4;k++)B.push(b0+(b1-b0)*k/4);
+  for(const e of L){const xs=[e.s,e.s+e.l,e.s+e.a.len];for(const p of e.a.pts)xs.push(e.s+p.t);for(const x of xs)if(x>b0+1e-7&&x<b1-1e-7)B.push(x)}
+  B.push(b1);B.sort((x,y)=>x-y);const o=[];for(const x of B)if(!o.length||x-o[o.length-1]>1e-7)o.push(x);return o}
+function schedAuto(b0,when,sp){const idx=autoIdx(),b1=b0+SNAP,T=b=>when+(b-b0)*sp;
+  for(const pid of [...AUTOLIVE])if(!idx.has(pid)){AUTOLIVE.delete(pid);const d=autoDesc(pid),p=d&&d.ap&&d.ap();if(p){p.cancelScheduledValues(when);p.setValueAtTime(d.man(),when)}}
+  for(const[pid,L]of idx){const d=autoDesc(pid);if(!d||!d.ap)continue;const par=d.ap();if(!par)continue;AUTOLIVE.add(pid);
+    const val=(b,left)=>{const v=evalPid(pid,left?b-1e-7:b);return aClamp(v==null?d.man():v,d.min,d.max)},B=autoBreaks(L,b0,b1);
+    par.setValueAtTime(val(B[0]),T(B[0]));
+    for(let i=1;i<B.length;i++){par.linearRampToValueAtTime(val(B[i],true),T(B[i]));par.setValueAtTime(val(B[i]),T(B[i]))}
+    if(d.echo){const k=pickClip(pid,b0);if(k)getCh(d.echo).ec.h({mix:1,time:aClamp(k.e.a.tm,.02,1),fb:aClamp(k.e.a.fb,0,.85)})}}}
+/* ---- 再生: エフェクトのパラメータ(コントロールレート) ---- */
+function applyFxAuto(b){const idx=autoIdx(),by=new Map();
+  for(const pid of idx.keys()){if(pid[0]!=='f')continue;const d=autoDesc(pid);if(!d||!d.fx)continue;let g=by.get(d.fx.e);if(!g)by.set(d.fx.e,g={o:{},on:null});const v=evalPid(pid,b);
+    if(d.fx.name==='on')g.on=v==null?d.fx.e.on!==false:v>=.5;else if(v!=null)g.o[d.fx.name]=v}
+  for(const[e,g]of by){FXLIVE.add(e);const n=fxNode(e);n.h(Object.assign(defP(e.type),e.p,g.o));if(g.on!=null)n.bp(!g.on)}
+  for(const e of [...FXLIVE])if(!by.has(e)){FXLIVE.delete(e);const n=fxNode(e);n.h(Object.assign(defP(e.type),e.p));n.bp(e.on===false)}}
+function schedFxAuto(b0,when,sp){const idx=autoIdx();if(!FXLIVE.size&&![...idx.keys()].some(k=>k[0]==='f'))return;const g=AUTOGEN,c=ctx;
+  for(let k=0;k<4;k++){const b=b0+k*SNAP/4,dl=Math.max(0,(when+(b-b0)*sp-ctx.currentTime)*1000);setTimeout(()=>{if(g===AUTOGEN&&playing&&c===ctx)try{applyFxAuto(b)}catch(err){console.warn(err)}},dl)}}
+/* 停止・シーク時: 自動制御していた値を手動値へ戻す */
+function resetAuto(){AUTOGEN++;if(!ctx)return;
+  for(const pid of AUTOLIVE){const d=autoDesc(pid),p=d&&d.ap&&d.ap();if(p){p.cancelScheduledValues(0);p.value=d.man()}}AUTOLIVE.clear();
+  for(const t of S.tracks){const c=CH.get(t);if(c&&c.vg){c.vg.gain.cancelScheduledValues(0);c.vg.gain.value=1;c.eg.gain.cancelScheduledValues(0);c.eg.gain.value=0}}
+  if(FXLIVE.size){try{applyFxAuto(-1e9)}catch(_){}}}
+function pitchCurve(t,beat,db){const sp=spb(),n=Math.min(48,Math.max(2,Math.ceil((db+.5)/.125))),pts=[],pid='trk:'+t.id+':pitch',has=autoIdx().has(pid);let any=false;
+  for(let i=0;i<=n;i++){const off=Math.min(db+.5,i*.125),c=PA&&PA.p?patAutoPitch(PA.p,PA.b+off):(has?(evalPid(pid,beat+off)||0)*100:0);pts.push([off*sp,c]);if(Math.abs(c)>.01)any=true}return any?pts:null}
 function applyDet(par,when,pc){par.setValueAtTime(pc[0][1],when);for(let i=1;i<pc.length;i++)par.linearRampToValueAtTime(pc[i][1],when+pc[i][0])}
+const colorFor=pid=>{const m=/:(vol|pitch|echo)$/.exec(pid||'');if(m&&pid[0]==='t')return KC[m[1]];let h=0;for(const ch of String(pid||''))h=(h*31+ch.charCodeAt(0))|0;return APCOL[Math.abs(h)%APCOL.length]};
 function fixAuto(){S.autos=Array.isArray(S.autos)?S.autos:[];S.autotr=Array.isArray(S.autotr)?S.autotr:[];S.aplace=Array.isArray(S.aplace)?S.aplace:[];
-  for(const a of S.autos){a.id=a.id||uid();if(!(a.kind in ADEF))a.kind='vol';a.mode=a.mode==='curve'?'curve':'line';a.smooth=Math.max(0,Math.min(1,a.smooth==null?1:+a.smooth));a.range=Math.max(1,Math.min(48,+a.range||12));
-    a.len=Math.max(1,+a.len||16);a.tm=Math.max(.02,Math.min(1,+a.tm||.3));a.fb=Math.max(0,Math.min(.85,a.fb==null?.35:+a.fb));a.color=a.color||KC[a.kind];a.name=a.name||KN[a.kind];
-    a.pts=(Array.isArray(a.pts)?a.pts:[]).map(p=>({t:Math.max(0,Math.min(a.len,+p.t||0)),v:Math.max(0,Math.min(1,+p.v))})).filter(p=>isFinite(p.v)).sort((x,y)=>x.t-y.t)}
-  const tids=new Set(S.tracks.map(t=>t.id));S.autotr=S.autotr.filter(r=>(r.id=r.id||uid())&&tids.has(r.tid));
-  const rid=new Set(S.autotr.map(r=>r.id)),aid=new Set(S.autos.map(a=>a.id));S.aplace=S.aplace.filter(q=>rid.has(q.tr)&&aid.has(q.aid)&&q.l>0&&q.s>=0);
-  EA=S.autos.find(a=>a.id===eaId)||null;EQ=S.aplace.find(q=>q.id===eqId)||null;asel=new Set();selA=null;AC=null;NC=null;fixCfx()}
-const newAuto=kind=>({id:uid(),name:KN[kind]+' '+(S.autos.length+1),color:KC[kind],kind,mode:'line',smooth:1,range:12,len:16,tm:.3,fb:.35,pts:[{t:0,v:aDef({kind})},{t:16,v:aDef({kind})}]});
-function openAuto(q){const a=S.autos.find(x=>x.id===q.aid);if(!a)return;EA=a;EQ=q;eaId=a.id;eqId=q.id;asel=new Set();svTop.auto=0;setView('auto');roll.scrollLeft=0;draw()}
-// --- ソング上: オートメーション行/ブロック ---
+  S.master=S.master==null||!isFinite(+S.master)?.8:aClamp(+S.master,0,1.5);
+  for(const t of S.tracks){t.id=t.id||uid();t.fx=Array.isArray(t.fx)?t.fx:[];for(const e of t.fx)e.id=e.id||uid()}
+  S.autotr=S.autotr.filter(r=>{r.id=r.id||uid();return !r.tid||S.tracks.some(t=>t.id===r.tid)});
+  const rid=new Set(S.autotr.map(r=>r.id)),aid0=new Set(S.autos.map(a=>a.id));S.aplace=S.aplace.filter(q=>rid.has(q.tr)&&aid0.has(q.aid)&&q.l>0&&q.s>=0);
+  for(const a of S.autos){a.id=a.id||uid();if(!(a.kind in ADEF))a.kind='vol';
+    a.interp=['step','linear','smooth'].includes(a.interp)?a.interp:(a.mode==='curve'?'smooth':'linear');a.mode=a.interp==='smooth'?'curve':'line';
+    a.end=a.end==='hold'?'hold':'reset';a.smooth=aClamp(a.smooth==null?1:+a.smooth,0,1);a.range=aClamp(+a.range||12,1,48);
+    a.len=Math.max(1,+a.len||16);a.tm=aClamp(+a.tm||.3,.02,1);a.fb=aClamp(a.fb==null?.35:+a.fb,0,.85);
+    a.pts=(Array.isArray(a.pts)?a.pts:[]).map(p=>({t:aClamp(+p.t||0,0,a.len),v:aClamp(+p.v,0,1)})).filter(p=>isFinite(p.v)).sort((x,y)=>x.t-y.t);
+    if(typeof a.target!=='string'||!a.target){ // 旧形式(トラックに紐づいた kind) → 接続先IDへ移行
+      const q=S.aplace.find(o=>o.aid===a.id),r=q&&S.autotr.find(x=>x.id===q.tr),t=r&&r.tid&&S.tracks.find(x=>x.id===r.tid);
+      if(t){a.target='trk:'+t.id+':'+a.kind;if(a.kind==='vol'){const V=t.vol==null?.7:t.vol;for(const p of a.pts)p.v=aClamp(p.v*V,0,1)}} // 旧: トラック音量×倍率 → 新: 絶対音量(同じ音量になるよう換算)
+      else a.target=''}
+    a.color=a.color||colorFor(a.target);a.name=a.name||(KN[a.kind]||'Automation')}
+  S.autotr.forEach(r=>{delete r.tid});
+  const keep=new Set(S.aplace.map(q=>q.aid));S.autos=S.autos.filter(a=>keep.has(a.id)||a.id===eaId);
+  EA=S.autos.find(a=>a.id===eaId)||null;EQ=S.aplace.find(q=>q.id===eqId)||null;asel=new Set();selA=null;AC=null;ADC=new Map();NC=null;fixCfx()}
+const newAuto=target=>{const d=autoDesc(target,true),n0=d?(d.semi?.5:aNorm(d,d.man())):.5;
+  return{id:uid(),name:d?d.label:'Automation',color:colorFor(target),kind:/:pitch$/.test(target)?'pitch':/:echo$/.test(target)?'echo':'vol',target,interp:d&&d.disc?'step':'linear',mode:'line',end:'hold',smooth:1,range:12,len:16,tm:.3,fb:.35,pts:[{t:0,v:n0},{t:16,v:n0}]}};
+/* つまみの右クリック等から: 接続先を指定してクリップを作る(空いているオートメーショントラックへ。無ければ追加) */
+function autoCreateFor(pid,s){const d=autoDesc(pid,true);if(!d)return null;pushUndo();const a=newAuto(pid);S.autos.push(a);s=s==null?Math.floor(playBeat/4)*4:s;
+  let row=S.autotr.find(r=>!S.aplace.some(o=>o.tr===r.id&&o.s<s+a.len&&s<o.s+o.l));if(!row){row={id:uid(),name:'Auto '+(S.autotr.length+1)};S.autotr.push(row)}
+  const q={id:uid(),aid:a.id,tr:row.id,s,l:a.len};S.aplace.push(q);fitSong();dirty();return q}
+function autoMenu(ev,pid){const d=autoDesc(pid,true);if(!d)return;ev.preventDefault();ev.stopPropagation();ctxClose();
+  const ex=autoIdx().get(pid),items=[['new','「'+d.label+'」のオートメーションクリップを作成']];if(ex&&ex.length)items.push(['open','既存のオートメーションクリップを編集']);
+  const el=document.createElement('div');el.className='ddp ctxm';el.innerHTML='<div class="ddl">'+items.map((it,i)=>'<div class="ddi" data-i="'+i+'"><span class="dt">'+it[1]+'</span></div>').join('')+'</div>';document.body.appendChild(el);
+  el.style.left=Math.min(ev.clientX,innerWidth-el.offsetWidth-8)+'px';el.style.top=Math.min(ev.clientY,innerHeight-el.offsetHeight-8)+'px';ctxM={el,act:0,q:null};requestAnimationFrame(()=>el.classList.add('open'));
+  el.addEventListener('click',e=>{const r=e.target.closest('.ddi');if(!r)return;ctxClose();const k=items[+r.dataset.i][0];
+    if(k==='new'){const q=autoCreateFor(pid);if(q){selA=q;sSel=null;openAuto(q);$('st').textContent='オートメーションクリップを作成しました。制御点を編集してください'}}else{const e0=ex[ex.length-1];openAuto(e0.q)}})}
+function markAuto(el,pid){if(!el)return;el.dataset.apid=pid;el.addEventListener('contextmenu',e=>autoMenu(e,pid))}
+function refreshAutoMarks(){const idx=autoIdx();document.querySelectorAll('[data-apid]').forEach(el=>{const on=idx.has(el.dataset.apid);el.classList.toggle('autoed',on);el.title=on?'オートメーション接続中(再生中は曲の値が優先されます)  右クリックで編集':'右クリックでオートメーションを作成'})}
+/* ---- ソング上のオートメーション行/クリップ ---- */
+function openAuto(q){const a=S.autos.find(x=>x.id===q.aid);if(!a)return;EA=a;EQ=q;eaId=a.id;eqId=q.id;asel=new Set();AVZ={lo:0,hi:1};svTop.auto=0;if(VIEW==='auto'){roll.scrollLeft=0;draw()}else{setView('auto');roll.scrollLeft=0;draw()}}
+function drawAutoBlocks(g2,C,sx,vw){const P0=S.tracks.length;
+  for(const q of S.aplace){const a=S.autos.find(x=>x.id===q.aid),ri=S.autotr.findIndex(r=>r.id===q.tr);if(!a||ri<0)continue;const x=q.s*BW,w=Math.max(3,q.l*BW),y=(P0+ri)*SRH+3,h=SRH-6;if(x>sx+vw||x+w<sx)continue;
+    const ok=!a.target||!!autoDesc(a.target);g2.globalAlpha=.9;g2.fillStyle='#262a30';g2.fillRect(x,y,w,h);g2.globalAlpha=.28;g2.fillStyle=a.color;g2.fillRect(x,y,w,h);g2.globalAlpha=1;
+    g2.save();g2.beginPath();g2.rect(x,y,w,h);g2.clip();g2.strokeStyle=a.color;g2.lineWidth=1.5;g2.beginPath();let f=true;const x0=Math.max(x,sx),x1=Math.min(x+w,sx+vw);
+    for(let px=x0;px<=x1+2;px+=2){const v=autoVal(a,Math.min(a.len,(px-x)/BW)),yy=y+h-2-v*(h-4);if(f){g2.moveTo(px,yy);f=false}else g2.lineTo(px,yy)}g2.stroke();
+    if(q.l>a.len+1e-9){g2.fillStyle='rgba(0,0,0,.18)';g2.fillRect(x+a.len*BW,y,w-a.len*BW,h)}
+    g2.fillStyle='#fff';g2.font='bold 10px system-ui';g2.shadowColor='rgba(0,0,0,.7)';g2.shadowBlur=2;g2.fillText(fitText(g2,(ok?'':'⚠ ')+a.name,Math.max(8,w-6)),Math.max(x,sx)+4,y+10);g2.restore();
+    g2.lineWidth=selA===q?2:1;g2.strokeStyle=!ok?'#e5484d':selA===q?'#f0f3f5':'rgba(0,0,0,.7)';if(!ok)g2.setLineDash([4,3]);g2.strokeRect(x+.5,y+.5,w-1,h-1);g2.setLineDash([]);g2.lineWidth=1;
+    if(selA===q){g2.fillStyle='rgba(255,255,255,.85)';g2.fillRect(x+w-6,y+4,2,h-8)}}}
 cv.addEventListener('pointerdown',e=>{if(VIEW!=='song')return;const rc=cv.getBoundingClientRect();if(e.clientY-rc.top<RULER)return;
   const{x,y}=pt(e),ri=Math.floor(y/SRH)-S.tracks.length;if(ri<0||ri>=S.autotr.length)return;cv.setPointerCapture(e.pointerId);const row=S.autotr[ri];let h=null;
   for(let i=S.aplace.length-1;i>=0;i--){const q=S.aplace[i];if(q.tr===row.id&&x>=q.s*BW&&x<=(q.s+q.l)*BW){h=q;break}}
-  if(h){const now=Date.now();if(lastTapA.q===h&&now-lastTapA.t<400){lastTapA={q:null,t:0};ad=null;openAuto(h);return}
+  if(h){const now=Date.now();if(lastTapA.q===h&&now-lastTapA.t<400){lastTapA={q:null,t:0};ad=null;OPENEV=e;openAuto(h);return}
     lastTapA={q:h,t:now};selA=h;sSel=null;ad={q:h,mode:(h.s*BW+h.l*BW-x<10&&h.l*BW>24)?'r':'move',ox:x/BW-h.s,before:snap(),moved:false}}
-  else{pushUndo();const s=Math.max(0,Math.floor(x/BW/4)*4);if(s>=MAXBARS*4)return;const a=newAuto($('akind').value),q={id:uid(),aid:a.id,tr:row.id,s,l:a.len};S.autos.push(a);S.aplace.push(q);selA=q;sSel=null;fitSong();dirty();lastTapA={q,t:Date.now()}}
+  else{fillAkind();const tg=$('akind').value;if(!tg||!autoDesc(tg)){$('st').textContent='接続先パラメータを選んでからクリップを追加してください';return}pushUndo();const s=Math.max(0,Math.floor(x/BW/4)*4);if(s>=MAXBARS*4)return;const a=newAuto(tg),q={id:uid(),aid:a.id,tr:row.id,s,l:a.len};S.autos.push(a);S.aplace.push(q);selA=q;sSel=null;fitSong();dirty();lastTapA={q,t:Date.now()}}
   syncSongBar();draw()});
 cv.addEventListener('pointermove',e=>{if(VIEW!=='song'||!ad)return;const{x,y}=pt(e),q=ad.q;
   if(!ad.moved){ad.moved=true;undo.push(ad.before);if(undo.length>100)undo.shift();redo=[]}edgeScroll(e);
-  if(ad.mode==='move'){q.s=Math.max(0,Math.min(MAXBARS*4-q.l,Math.round((x/BW-ad.ox)/4)*4));const ri=Math.max(0,Math.min(S.autotr.length-1,Math.floor(y/SRH)-S.tracks.length));q.tr=S.autotr[ri].id}
-  else q.l=Math.max(4,Math.min(MAXBARS*4-q.s,Math.round((x/BW-q.s)/4)*4));
-  fitSong();draw()});
+  if(ad.mode==='move'){q.s=Math.max(0,Math.min(MAXBARS*4-q.l,sgSnap(x/BW-ad.ox)));const ri=Math.max(0,Math.min(S.autotr.length-1,Math.floor(y/SRH)-S.tracks.length));q.tr=S.autotr[ri].id}
+  else q.l=Math.max(Math.max(.25,sgG()),Math.min(MAXBARS*4-q.s,sgSnap(x/BW-q.s)));
+  dirty();fitSong();draw()});
 const adEnd=()=>{if(!ad)return;const m=ad.moved;ad=null;if(m)dirty();draw()};cv.addEventListener('pointerup',adEnd);cv.addEventListener('pointercancel',adEnd);
-function delAblk(){if(!selA)return;pushUndo();const a=S.autos.find(x=>x.id===selA.aid);S.aplace=S.aplace.filter(q=>q!==selA);selA=null;if(a&&a!==EA&&!S.aplace.some(q=>q.aid===a.id))S.autos=S.autos.filter(x=>x!==a);dirty();draw()}
+cv.addEventListener('contextmenu',e=>{if(VIEW!=='song')return;const rc=cv.getBoundingClientRect();if(e.clientY-rc.top<RULER)return;const{x,y}=pt(e),ri=Math.floor(y/SRH)-S.tracks.length;if(ri<0||ri>=S.autotr.length)return;e.preventDefault();
+  for(let i=S.aplace.length-1;i>=0;i--){const q=S.aplace[i];if(q.tr===S.autotr[ri].id&&x>=q.s*BW&&x<=(q.s+q.l)*BW){selA=q;sSel=null;syncSongBar();draw();return}}});
+function delAblk(){if(!selA)return;pushUndo();const a=S.autos.find(x=>x.id===selA.aid);S.aplace=S.aplace.filter(q=>q!==selA);if(EQ===selA){EQ=null;eqId=null}selA=null;if(a&&a!==EA&&!S.aplace.some(q=>q.aid===a.id))S.autos=S.autos.filter(x=>x!==a);dirty();syncSongBar();draw()}
 function dupAblk(indep){if(!selA)return;const q0=selA,a=S.autos.find(x=>x.id===q0.aid);if(!a)return;if(q0.s+q0.l*2>MAXBARS*4){alert('最大小節数を超えるため複製できません');return}
   pushUndo();let aid=a.id;if(indep){const b=JSON.parse(JSON.stringify(a));b.id=uid();b.name=a.name+' (コピー)';S.autos.push(b);aid=b.id}
   const q={id:uid(),aid,tr:q0.tr,s:q0.s+q0.l,l:q0.l};S.aplace.push(q);selA=q;fitSong();dirty();draw()}
 $('sgOpen').onclick=()=>{if(selA)openAuto(selA);else if(sSel)openPattern(sSel)};
 $('sgDup').onclick=()=>selA?dupAblk(false):dupPl(false);$('sgCopy').onclick=()=>selA?dupAblk(true):dupPl(true);$('sgDel').onclick=()=>selA?delAblk():delPl();
-$('sgAT').style.display='none';$('sgDelAT').style.display='none';$('akind').style.display='none';
-$('sgAT').onclick=()=>{pushUndo();S.autotr.push({id:uid(),name:'Auto '+(S.autotr.length+1),tid:S.tracks[sel].id});dirty();draw();$('st').textContent='選択中のトラック「'+S.tracks[sel].name+'」用のオートメーショントラックを追加しました'};
-$('sgDelAT').onclick=()=>{if(!selA){alert('削除するオートメーショントラックのブロックを選択してください');return}if(!confirm('このオートメーショントラックと、その上のブロックをすべて削除しますか?'))return;
+$('sgAT').onclick=()=>{pushUndo();S.autotr.push({id:uid(),name:'Auto '+(S.autotr.length+1)});dirty();fitSong();draw();$('st').textContent='オートメーショントラックを追加しました。接続先を選び、トラックの空き部分をクリックしてクリップを置きます'};
+$('sgDelAT').onclick=()=>{if(!selA){alert('削除するオートメーショントラックのクリップを選択してください');return}if(!confirm('このオートメーショントラックと、その上のクリップをすべて削除しますか?'))return;
   pushUndo();const id=selA.tr;S.autotr=S.autotr.filter(r=>r.id!==id);S.aplace=S.aplace.filter(q=>q.tr!==id);selA=null;fixAuto();dirty();draw()};
-// --- オートメーションエディター ---
+function fillAkind(){const L=autoParamList(),sig=L.map(o=>o.id+o.label).join('|'),el=$('akind');if(sig===el.dataset.sig)return;const cur=el.value;el.dataset.sig=sig;el.innerHTML=L.map(o=>'<option value="'+o.id+'">'+o.label.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</option>').join('');
+  el.value=L.some(o=>o.id===cur)?cur:(S.tracks[sel]?'trk:'+S.tracks[sel].id+':vol':'master:vol')}
+/* ---- オートメーションエディター ---- */
 const PY0=RULER+12,ph=()=>Math.max(20,roll.clientHeight-PY0-14),clampV=v=>Math.max(0,Math.min(1,v)),sortPts=()=>EA.pts.sort((a,b)=>a.t-b.t);
-const snapT=t=>{t=AGON?Math.round(t/GRID)*GRID:t;return Math.max(0,Math.min(EA.len,t))};
-function aLbl(a,v){if(a.kind==='vol')return Math.round(v*100)+'% ('+(v>0?(20*Math.log10(v)).toFixed(1):'-∞')+'dB)';if(a.kind==='echo')return Math.round(v*100)+'%';const sm=(v-.5)*2*a.range;return(sm>0?'+':'')+sm.toFixed(2)+'半音'}
-function boxA(){const d=adr,xa=Math.min(d.x0,d.x1),xb=Math.max(d.x0,d.x1),ya=Math.min(d.y0,d.y1),yb=Math.max(d.y0,d.y1),PH=ph();asel=new Set(d.base);
-  for(const p of EA.pts){const x=p.t*BW,y=PY0+(1-p.v)*PH;if(x>=xa&&x<=xb&&y>=ya&&y<=yb)asel.add(p)}}
-function drawAuto(){const a=EA,r=devicePixelRatio||1,vw=Math.max(1,roll.clientWidth),vh=Math.max(1,roll.clientHeight),W=S.len*BW,sx=roll.scrollLeft,PH=ph();
+const yOfV=v=>PY0+(1-(v-AVZ.lo)/(AVZ.hi-AVZ.lo))*ph(),vOfY=y=>AVZ.lo+(1-(y-PY0)/ph())*(AVZ.hi-AVZ.lo);
+const snapT=t=>{t=AGON&&GRID>0?Math.round(t/GRID)*GRID:t;return Math.max(0,Math.min(EA.len,t))};
+function aLbl(a,v){const d=a.target?autoDesc(a.target):null;if(!d)return Math.round(v*100)+'%';return d.fmt(autoReal(a.target,a,v))}
+const fmtBarPos=b=>(Math.floor(b/4)+1)+':'+(Math.floor(b%4+1e-9)+1);
+function boxA(){const d=adr,xa=Math.min(d.x0,d.x1),xb=Math.max(d.x0,d.x1),ya=Math.min(d.y0,d.y1),yb=Math.max(d.y0,d.y1);asel=new Set(d.base);
+  for(const p of EA.pts){const x=p.t*BW,y=yOfV(p.v);if(x>=xa&&x<=xb&&y>=ya&&y<=yb)asel.add(p)}}
+function drawAuto(){const a=EA,r=devicePixelRatio||1,vw=Math.max(1,roll.clientWidth),vh=Math.max(1,roll.clientHeight),W=S.len*BW,sx=roll.scrollLeft,d=a.target?autoDesc(a.target):null;
   sz.style.width=W+'px';sz.style.height=vh+'px';const cw=Math.round(vw*r),chh=Math.round(vh*r);if(cv.width!==cw||cv.height!==chh){cv.width=cw;cv.height=chh;cv.style.width=vw+'px';cv.style.height=vh+'px'}
   const C={panel:css('--panel'),fg:css('--fg'),mut:css('--mut'),line:css('--line'),bar:css('--bar')};
   g2.setTransform(r,0,0,r,0,0);g2.globalAlpha=1;g2.lineWidth=1;g2.fillStyle=C.panel;g2.fillRect(0,0,vw,vh);
   const LX=Math.max(0,a.len*BW-sx);if(LX<vw){g2.globalAlpha=.25;g2.fillStyle=C.mut;g2.fillRect(LX,RULER,vw-LX,vh-RULER);g2.globalAlpha=1}
+  g2.save();g2.beginPath();g2.rect(0,RULER,vw,vh-RULER);g2.clip();
   for(let b=Math.max(0,Math.floor(sx/BW));b<=Math.min(S.len,Math.ceil((sx+vw)/BW));b++){const x=b*BW-sx;g2.strokeStyle=b%4===0?C.bar:C.line;g2.globalAlpha=b%4===0?1:.45;g2.beginPath();g2.moveTo(x+.5,RULER);g2.lineTo(x+.5,vh);g2.stroke()}
-  if(GRID<.25-1e-9&&GRID*BW>=6){g2.strokeStyle=C.line;g2.globalAlpha=.25;for(let k=Math.floor(sx/BW/GRID);k<=Math.ceil((sx+vw)/BW/GRID);k++){const bt=k*GRID;if(Math.abs(bt*4-Math.round(bt*4))<1e-6)continue;const x=bt*BW-sx;g2.beginPath();g2.moveTo(x+.5,RULER);g2.lineTo(x+.5,vh);g2.stroke()}}
+  if(GRID>0&&GRID<1-1e-9&&GRID*BW>=6){g2.strokeStyle=C.line;g2.globalAlpha=.25;for(let k=Math.floor(sx/BW/GRID);k<=Math.ceil((sx+vw)/BW/GRID);k++){const bt=k*GRID;if(Math.abs(bt-Math.round(bt))<1e-6)continue;const x=bt*BW-sx;g2.beginPath();g2.moveTo(x+.5,RULER);g2.lineTo(x+.5,vh);g2.stroke()}}
   g2.globalAlpha=1;
-  for(const q of [0,.25,.5,.75,1]){const y=PY0+(1-q)*PH,mid=q===.5&&a.kind==='pitch';g2.strokeStyle=mid?C.bar:C.line;g2.lineWidth=mid?1.5:1;g2.beginPath();g2.moveTo(0,y+.5);g2.lineTo(vw,y+.5);g2.stroke();g2.fillStyle=C.mut;g2.font='10px system-ui';g2.fillText(aLbl(a,q),4,y-2)}
+  for(let q=0;q<=4;q++){const v=AVZ.lo+(AVZ.hi-AVZ.lo)*q/4,y=yOfV(v),mid=d&&d.semi&&Math.abs(v-.5)<1e-6;g2.strokeStyle=mid?C.bar:C.line;g2.lineWidth=mid?1.5:1;g2.beginPath();g2.moveTo(0,y+.5);g2.lineTo(vw,y+.5);g2.stroke();g2.fillStyle=C.mut;g2.font='10px system-ui';g2.fillText(aLbl(a,v),4,y-2)}
+  if(d&&!d.semi){const y=yOfV(aNorm(d,d.man()));if(y>=RULER&&y<=vh){g2.strokeStyle=C.mut;g2.globalAlpha=.7;g2.setLineDash([2,4]);g2.beginPath();g2.moveTo(0,y+.5);g2.lineTo(vw,y+.5);g2.stroke();g2.setLineDash([]);g2.globalAlpha=1;g2.fillStyle=C.mut;g2.fillText('手動値',vw-44,y-2)}}
   g2.lineWidth=1;const P=a.pts;
-  if(a.mode==='curve'&&P.length>1){g2.strokeStyle=C.mut;g2.globalAlpha=.45;g2.setLineDash([3,3]);g2.beginPath();P.forEach((p,i)=>{const x=p.t*BW-sx,y=PY0+(1-p.v)*PH;i?g2.lineTo(x,y):g2.moveTo(x,y)});g2.stroke();g2.setLineDash([]);g2.globalAlpha=1}
-  g2.strokeStyle=a.color;g2.lineWidth=2.5;g2.beginPath();let f=true;for(let px=0;px<=Math.min(vw,a.len*BW-sx);px+=2){const v=autoVal(a,(px+sx)/BW),y=PY0+(1-v)*PH;if(f){g2.moveTo(px,y);f=false}else g2.lineTo(px,y)}g2.stroke();g2.lineWidth=1;
-  for(const p of P){const x=p.t*BW-sx,y=PY0+(1-p.v)*PH;if(x<-8||x>vw+8)continue;g2.beginPath();g2.arc(x,y,asel.has(p)?6:5,0,7);g2.fillStyle=asel.has(p)?C.fg:C.panel;g2.fill();g2.strokeStyle=a.color;g2.lineWidth=2;g2.stroke();g2.lineWidth=1}
-  if(asel.size===1){const p=[...asel][0];g2.fillStyle=C.fg;g2.font='bold 11px system-ui';g2.fillText(aLbl(a,p.v),Math.max(4,Math.min(vw-150,p.t*BW-sx+8)),Math.max(RULER+12,PY0+(1-p.v)*PH-9))}
+  if(a.interp==='smooth'&&P.length>1){g2.strokeStyle=C.mut;g2.globalAlpha=.45;g2.setLineDash([3,3]);g2.beginPath();P.forEach((p,i)=>{const x=p.t*BW-sx,y=yOfV(p.v);i?g2.lineTo(x,y):g2.moveTo(x,y)});g2.stroke();g2.setLineDash([]);g2.globalAlpha=1}
+  g2.strokeStyle=a.color;g2.lineWidth=2.5;g2.beginPath();let f=true;for(let px=0;px<=Math.min(vw,a.len*BW-sx);px+=2){const v=autoVal(a,(px+sx)/BW),y=yOfV(v);if(f){g2.moveTo(px,y);f=false}else g2.lineTo(px,y)}g2.stroke();g2.lineWidth=1;
+  for(const p of P){const x=p.t*BW-sx,y=yOfV(p.v);if(x<-8||x>vw+8)continue;g2.beginPath();g2.arc(x,y,asel.has(p)?6:5,0,7);g2.fillStyle=asel.has(p)?C.fg:C.panel;g2.fill();g2.strokeStyle=a.color;g2.lineWidth=2;g2.stroke();g2.lineWidth=1}
+  if(asel.size===1){const p=[...asel][0];g2.fillStyle=C.fg;g2.font='bold 11px system-ui';g2.fillText(aLbl(a,p.v),Math.max(4,Math.min(vw-170,p.t*BW-sx+8)),Math.max(RULER+12,yOfV(p.v)-9))}
   if(adr&&adr.mode==='box'){const xa=Math.min(adr.x0,adr.x1)-sx,ya=Math.min(adr.y0,adr.y1),bw=Math.abs(adr.x1-adr.x0),bh=Math.abs(adr.y1-adr.y0);g2.globalAlpha=.15;g2.fillStyle=a.color;g2.fillRect(xa,ya,bw,bh);g2.globalAlpha=1;g2.strokeStyle=a.color;g2.setLineDash([4,3]);g2.strokeRect(xa+.5,ya+.5,bw,bh);g2.setLineDash([])}
-  if(EQ){const rel=playBeat-EQ.s;if(rel>=0&&rel<=EQ.l){g2.fillStyle='#e5484d';g2.fillRect(rel*BW-sx,RULER,2,vh-RULER)}}
+  if(EQ){const rel=playBeat-EQ.s;if(rel>=0&&rel<=EQ.l){const px=rel*BW-sx,v=autoVal(a,Math.min(rel,a.len));g2.fillStyle='#e5484d';g2.fillRect(px,RULER,2,vh-RULER);g2.beginPath();g2.arc(px+1,yOfV(v),4,0,7);g2.fill();g2.font='bold 10px system-ui';g2.fillText(aLbl(a,v),Math.min(vw-150,px+8),Math.max(RULER+12,yOfV(v)-8))}}
+  g2.restore();
   g2.fillStyle=C.panel;g2.fillRect(0,0,vw,RULER);g2.strokeStyle=C.line;g2.beginPath();g2.moveTo(0,RULER-.5);g2.lineTo(vw,RULER-.5);g2.stroke();
-  for(let bar=Math.max(0,Math.floor(sx/BW/4));bar<=Math.min(S.len/4,Math.ceil((sx+vw)/BW/4));bar++){const x=bar*4*BW-sx;g2.strokeStyle=C.bar;g2.lineWidth=2;g2.beginPath();g2.moveTo(x+.5,0);g2.lineTo(x+.5,RULER);g2.stroke();g2.lineWidth=1;g2.fillStyle=C.fg;g2.font='bold 11px system-ui';g2.fillText(String(bar+1),x+5,15)}
+  for(let bar=Math.max(0,Math.floor(sx/BW/4));bar<=Math.min(S.len/4,Math.ceil((sx+vw)/BW/4));bar++){const x=bar*4*BW-sx;g2.strokeStyle=C.bar;g2.lineWidth=2;g2.beginPath();g2.moveTo(x+.5,0);g2.lineTo(x+.5,RULER);g2.stroke();g2.lineWidth=1;g2.fillStyle=C.fg;g2.font='bold 11px system-ui';g2.fillText(String(bar+1),x+5,15);
+    if(EQ&&BW*4>=60){g2.fillStyle=C.mut;g2.font='9px system-ui';g2.fillText('曲 '+fmtBarPos(EQ.s+bar*4),x+5,RULER-4)}}
   if(EQ){const rel=playBeat-EQ.s;if(rel>=0&&rel<=EQ.l){g2.fillStyle='#e5484d';const px=rel*BW-sx;g2.beginPath();g2.moveTo(px-5,0);g2.lineTo(px+5,0);g2.lineTo(px,8);g2.fill()}}}
-function updAbar(){const a=EA;if(!a)return;$('ainfo').textContent=KN[a.kind]+'オートメーション';const set=(id,v)=>{const el=$(id);if(document.activeElement!==el)el.value=v};
-  set('an',a.name);set('asm',a.smooth);set('arng',a.range);set('atm',a.tm);set('afb',a.fb);set('alen',a.len/4);set('akd',a.kind);
-  $('amLine').classList.toggle('on',a.mode==='line');$('amCurve').classList.toggle('on',a.mode==='curve');
-  document.querySelectorAll('#abar .aeo').forEach(el=>el.style.display=a.kind==='echo'?'':'none');
-  document.querySelectorAll('#abar .apt').forEach(el=>el.style.display=a.kind==='pitch'?'':'none');
-  document.querySelectorAll('#abar .acv').forEach(el=>el.style.display=a.mode==='curve'?'':'none')}
-cv.addEventListener('pointerdown',e=>{if(VIEW!=='auto'||!EA)return;const rc=cv.getBoundingClientRect();
+function updAbar(){const a=EA;if(!a)return;fillAkind();const d=a.target?autoDesc(a.target):null;
+  $('ainfo').textContent=d?d.label:(a.target?'⚠ 接続先が見つかりません':'接続先なし');
+  const set=(id,v)=>{const el=$(id);if(document.activeElement!==el)el.value=v};
+  const sg=$('atg'),sig=$('akind').dataset.sig+'|'+a.target;if(sg.dataset.sig!==sig){sg.dataset.sig=sig;let h=$('akind').innerHTML;if(a.target&&![...$('akind').options].some(o=>o.value===a.target))h='<option value="'+a.target+'">⚠ (見つかりません) '+a.target+'</option>'+h;if(!a.target)h='<option value="">(未接続)</option>'+h;sg.innerHTML=h}
+  if(document.activeElement!==sg)sg.value=a.target||'';
+  set('an',a.name);set('asm',a.smooth);set('arng',a.range);set('atm',a.tm);set('afb',a.fb);set('alen',a.len/4);set('aint',a.interp);set('aend',a.end);set('asg',GRID>0?GRID:0);$('asnOn').checked=AGON;
+  document.querySelectorAll('#abar .aeo').forEach(el=>el.style.display=d&&d.echo?'':'none');
+  document.querySelectorAll('#abar .apt').forEach(el=>el.style.display=d&&d.semi?'':'none');
+  document.querySelectorAll('#abar .acv').forEach(el=>el.style.display=a.interp==='smooth'?'':'none')}
+cv.addEventListener('pointerdown',e=>{if(VIEW!=='auto'||!EA||e===OPENEV)return;const rc=cv.getBoundingClientRect();
   if(e.clientY-rc.top<RULER){if(EQ)seekTo(EQ.s+(e.clientX-rc.left+roll.scrollLeft)/BW);return}
-  const sx=roll.scrollLeft,mx=e.clientX-rc.left,my=e.clientY-rc.top,PH=ph();cv.setPointerCapture(e.pointerId);
-  let h=null,bd=121;for(const p of EA.pts){const dx=p.t*BW-sx-mx,dy=PY0+(1-p.v)*PH-my,d=dx*dx+dy*dy;if(d<bd){bd=d;h=p}}
+  const sx=roll.scrollLeft,mx=e.clientX-rc.left,my=e.clientY-rc.top;cv.setPointerCapture(e.pointerId);
+  let h=null,bd=121;for(const p of EA.pts){const dx=p.t*BW-sx-mx,dy=yOfV(p.v)-my,dd=dx*dx+dy*dy;if(dd<bd){bd=dd;h=p}}
   const mod=e.shiftKey||e.ctrlKey||e.metaKey;
   if(!h&&(MODE==='select'||mod)){adr={mode:'box',x0:mx+sx,y0:my,x1:mx+sx,y1:my,base:new Set(mod?asel:[])};boxA();draw();return}
   let pushed=false;
   if(h&&mod){if(asel.has(h)){asel.delete(h);draw();return}asel.add(h)}
   else if(h&&!asel.has(h)){asel=new Set([h])}
-  else if(!h){pushUndo();pushed=true;h={t:snapT((mx+sx)/BW),v:clampV(1-(my-PY0)/PH)};EA.pts.push(h);sortPts();asel=new Set([h]);dirty()}
-  adr={mode:'move',before:snap(),pushed,moved:false,t0:h.t,v0:h.v,ox:(mx+sx)/BW-h.t,oy:(1-(my-PY0)/PH)-h.v,snap:[...asel].map(p=>({p,t:p.t,v:p.v}))};draw()});
-cv.addEventListener('pointermove',e=>{if(VIEW!=='auto'||!adr)return;const rc=cv.getBoundingClientRect(),sx=roll.scrollLeft,mx=e.clientX-rc.left+sx,my=e.clientY-rc.top,PH=ph();
+  else if(!h){pushUndo();pushed=true;h={t:snapT((mx+sx)/BW),v:clampV(vOfY(my))};EA.pts.push(h);sortPts();asel=new Set([h]);dirty()}
+  adr={mode:'move',before:snap(),pushed,moved:false,t0:h.t,v0:h.v,ox:(mx+sx)/BW-h.t,oy:vOfY(my)-h.v,snap:[...asel].map(p=>({p,t:p.t,v:p.v}))};draw()});
+cv.addEventListener('pointermove',e=>{if(VIEW!=='auto'||!adr)return;const rc=cv.getBoundingClientRect(),sx=roll.scrollLeft,mx=e.clientX-rc.left+sx,my=e.clientY-rc.top;
   if(adr.mode==='box'){edgeScroll(e);adr.x1=mx;adr.y1=my;boxA();draw();return}
   if(!adr.moved){adr.moved=true;if(!adr.pushed){undo.push(adr.before);if(undo.length>100)undo.shift();redo=[]}}edgeScroll(e);
-  let dt=snapT(mx/BW-adr.ox)-adr.t0,dv=clampV(1-(my-PY0)/PH-adr.oy)-adr.v0,mnT=1e9,mxT=-1e9,mnV=1e9,mxV=-1e9;
+  let dt=snapT(mx/BW-adr.ox)-adr.t0,dv=clampV(vOfY(my)-adr.oy)-adr.v0,mnT=1e9,mxT=-1e9,mnV=1e9,mxV=-1e9;
   for(const o of adr.snap){mnT=Math.min(mnT,o.t);mxT=Math.max(mxT,o.t);mnV=Math.min(mnV,o.v);mxV=Math.max(mxV,o.v)}
   dt=Math.max(-mnT,Math.min(EA.len-mxT,dt));dv=Math.max(-mnV,Math.min(1-mxV,dv));
   for(const o of adr.snap){o.p.t=o.t+dt;o.p.v=o.v+dv}sortPts();draw()});
 const aUp=()=>{if(VIEW!=='auto'||!adr)return;const m=adr.mode==='move'&&(adr.moved||adr.pushed);adr=null;if(m)dirty();draw()};cv.addEventListener('pointerup',aUp);cv.addEventListener('pointercancel',aUp);
-cv.addEventListener('contextmenu',e=>{if(VIEW!=='auto'||!EA)return;e.preventDefault();const rc=cv.getBoundingClientRect(),sx=roll.scrollLeft,PH=ph();let h=null,bd=121;
-  for(const p of EA.pts){const dx=p.t*BW-sx-(e.clientX-rc.left),dy=PY0+(1-p.v)*PH-(e.clientY-rc.top),d=dx*dx+dy*dy;if(d<bd){bd=d;h=p}}
+cv.addEventListener('contextmenu',e=>{if(VIEW!=='auto'||!EA)return;e.preventDefault();const rc=cv.getBoundingClientRect(),sx=roll.scrollLeft;let h=null,bd=121;
+  for(const p of EA.pts){const dx=p.t*BW-sx-(e.clientX-rc.left),dy=yOfV(p.v)-(e.clientY-rc.top),dd=dx*dx+dy*dy;if(dd<bd){bd=dd;h=p}}
   if(h){const del=asel.has(h)?new Set(asel):new Set([h]);pushUndo();EA.pts=EA.pts.filter(p=>!del.has(p));asel=new Set();dirty();draw()}});
+roll.addEventListener('wheel',e=>{if(VIEW!=='auto')return;if(e.ctrlKey||e.metaKey){e.preventDefault();zoomH(zh*(e.deltaY<0?1.15:1/1.15));return}
+  if(AVZ.hi-AVZ.lo<1-1e-9&&!e.shiftKey){e.preventDefault();const sp=AVZ.hi-AVZ.lo,dv=(e.deltaY>0?-1:1)*sp*.15,lo=aClamp(AVZ.lo+dv,0,1-sp);AVZ={lo,hi:lo+sp};draw()}},{passive:false});
+function aZoomV(k){const sp=AVZ.hi-AVZ.lo;let c=(AVZ.lo+AVZ.hi)/2;if(asel.size)c=[...asel].reduce((s,p)=>s+p.v,0)/asel.size;const ns=aClamp(sp*k,.04,1);let lo=aClamp(c-ns/2,0,1-ns);AVZ={lo,hi:lo+ns};draw()}
+$('avIn').onclick=()=>aZoomV(1/1.5);$('avOut').onclick=()=>aZoomV(1.5);$('avAll').onclick=()=>{AVZ={lo:0,hi:1};draw()};
+$('ahIn').onclick=()=>zoomH(zh*1.25);$('ahOut').onclick=()=>zoomH(zh/1.25);
 function delAPts(){if(!asel.size)return;pushUndo();EA.pts=EA.pts.filter(p=>!asel.has(p));asel=new Set();dirty();draw()}
 function aCopy(cut){if(!asel.size){$('st').textContent='制御点が選択されていません';return}const a=[...asel].sort((x,y)=>x.t-y.t),t0=a[0].t;ACLIP={pts:a.map(p=>({t:p.t-t0,v:p.v})),span:a[a.length-1].t-t0};
   if(cut)delAPts();$('st').textContent=a.length+'点を'+(cut?'切り取り':'コピー')+'しました'}
 function aPaste(){if(!ACLIP){$('st').textContent='貼り付ける制御点がありません';return}const rel=EQ?playBeat-EQ.s:-1,at=snapT(rel>=0&&rel<=EA.len?rel:0);pushUndo();
   const n=ACLIP.pts.filter(c=>at+c.t<=EA.len+1e-9).map(c=>({t:at+c.t,v:c.v}));EA.pts.push(...n);sortPts();asel=new Set(n);dirty();draw();$('st').textContent=n.length+'点を再生位置に貼り付けました'}
-function aDup(){if(!asel.size)return;const a=[...asel],t0=Math.min(...a.map(p=>p.t)),t1=Math.max(...a.map(p=>p.t)),off=Math.max(t1-t0,GRID);
+function aDup(){if(!asel.size)return;const a=[...asel],t0=Math.min(...a.map(p=>p.t)),t1=Math.max(...a.map(p=>p.t)),off=Math.max(t1-t0,GRID||.25);
   if(t1+off>EA.len){$('st').textContent='クリップの長さを超えるため複製できません(長さを延ばしてください)';return}pushUndo();const n=a.map(p=>({t:p.t+off,v:p.v}));EA.pts.push(...n);sortPts();asel=new Set(n);dirty();draw()}
-$('an').oninput=e=>{EA.name=e.target.value||KN[EA.kind];dirty();draw()};
-$('akd').onchange=e=>{pushUndo();EA.kind=e.target.value;dirty();draw()};
-$('amLine').onclick=()=>{if(EA.mode!=='line'){pushUndo();EA.mode='line';dirty();draw()}};$('amCurve').onclick=()=>{if(EA.mode!=='curve'){pushUndo();EA.mode='curve';dirty();draw()}};
+$('an').oninput=e=>{EA.name=e.target.value||'Automation';dirty();draw()};
+$('atg').onchange=e=>{const nt=e.target.value;if(nt===EA.target||!nt)return;pushUndo();const old=EA.target;const od=old?autoDesc(old):null,nd=autoDesc(nt,true);
+  for(const p of EA.pts){const r=autoReal(old,EA,p.v);p.v=nd?(nd.semi?aClamp(r/(2*(EA.range||12))+.5,0,1):aNorm(nd,r)):p.v} // 実値を保ったまま新しい範囲へ換算
+  EA.target=nt;EA.kind=/:pitch$/.test(nt)?'pitch':/:echo$/.test(nt)?'echo':'vol';AC=null;ADC=new Map();if(nd&&nd.disc)EA.interp='step',EA.mode='line';dirty();draw()};
+$('aint').onchange=e=>{pushUndo();EA.interp=e.target.value;EA.mode=EA.interp==='smooth'?'curve':'line';dirty();draw()};
+$('aend').onchange=e=>{pushUndo();EA.end=e.target.value==='reset'?'reset':'hold';dirty();draw()};
+$('asg').onchange=e=>{GRID=+e.target.value;if(GRID>0){try{localStorage.setItem('daw-grid',String(GRID));$('grid').value=String(GRID)}catch(_){}}draw()};
 $('asm').oninput=e=>{EA.smooth=+e.target.value;dirty();draw()};
 $('arng').onchange=e=>{pushUndo();EA.range=Math.max(1,Math.min(48,Math.round(+e.target.value)||12));dirty();draw()};
 $('atm').onchange=e=>{pushUndo();EA.tm=Math.max(.02,Math.min(1,+e.target.value||.3));dirty();draw()};
 $('afb').onchange=e=>{pushUndo();EA.fb=Math.max(0,Math.min(.85,+e.target.value||0));dirty();draw()};
-$('alen').onchange=e=>{const n=Math.max(1,Math.min(64,Math.round(+e.target.value)||1));pushUndo();EA.len=n*4;for(const p of EA.pts)p.t=Math.min(p.t,EA.len);dirty();draw()};
+$('alen').onchange=e=>{const n=Math.max(1,Math.min(64,Math.round(+e.target.value)||1));pushUndo();EA.len=n*4;for(const p of EA.pts)p.t=Math.min(p.t,EA.len);if(EQ)EQ.l=Math.max(.25,Math.min(MAXBARS*4-EQ.s,EA.len));fitSong();dirty();draw()};
 $('asnOn').onchange=e=>{AGON=e.target.checked};
 const _d3=delSel;delSel=function(){if(VIEW==='auto'){delAPts();return}if(VIEW==='song'&&selA){delAblk();return}_d3()};
 const _u3=dupSel;dupSel=function(){if(VIEW==='auto'){aDup();return}if(VIEW==='song'&&selA){dupAblk(false);return}_u3()};
@@ -1218,6 +1342,11 @@ const _ps=pasteSel;pasteSel=function(){if(VIEW==='auto'){aPaste();return}_ps()};
 const _sa=selectAll;selectAll=function(){if(VIEW==='auto'){asel=new Set(EA.pts);draw();return}_sa()};
 const _cs=copySel;copySel=function(cut){if(VIEW==='auto'){aCopy(cut);return}_cs(cut)};
 $('del').onclick=delSel;$('dup').onclick=dupSel;$('pst').onclick=pasteSel;$('sall').onclick=selectAll;
+/* ---------- マスターボリューム(オートメーション対応) ---------- */
+markAuto($('mvol'),'master:vol');
+$('mvol').oninput=e=>{S.master=+e.target.value;if(master&&!AUTOLIVE.has('master:vol'))master.gain.value=S.master;dirty()};
+function syncMasterUI(){$('mvol').value=S.master==null?.8:S.master;if(master&&!AUTOLIVE.has('master:vol'))master.gain.value=S.master==null?.8:S.master;refreshAutoMarks()}
+const _rtm=renderTracks;renderTracks=function(){_rtm();syncMasterUI()};
 /* ---------- 自作エフェクト制作スタジオ ---------- */
 // [min,max,既定,step,表示名,変調スケール(LFO/制御の深さ1での振れ幅。無ければ変調不可)]
 const CN={
@@ -1419,7 +1548,7 @@ $f('fsDel').onclick=()=>{const E=fs.cur;if(!confirm('「'+E.name+'」を削除�
   for(const t of S.tracks){const had=(t.fx||[]).some(e=>e.type==='custom'&&e.p&&e.p.cid===E.id);if(had){for(const e of t.fx)if(e.type==='custom'&&e.p.cid===E.id){const n=FXN.get(e);if(n&&n.ds)n.ds();FXN.delete(e)}t.fx=t.fx.filter(e=>!(e.type==='custom'&&e.p&&e.p.cid===E.id));if(ctx&&CH.get(t))rebuild(t)}}
   S.cfx=S.cfx.filter(x=>x!==E);dirty();fsStopAud();fs.cur=S.cfx[0]||newCfx();fs.selN=fs.selE=null;fs.ust=[];fs.rst=[];fsList();fsRender();fsFit()};
 $f('fsAdd').onclick=async()=>{const t=S.tracks[sel],E=fs.cur;if(cfxUsesWL(E)){try{initAudio();await ensureWL(ctx)}catch(er){fsMsg('AudioWorkletを使えないため追加できません: '+er.message);return}}
-  pushUndo();t.fx=t.fx||[];t.fx.push({type:'custom',p:{mix:E.mix,cid:E.id},on:true});if(ctx)rebuild(t);dirty();fsMsg('トラック「'+t.name+'」のエフェクト欄に追加しました')};
+  pushUndo();t.fx=t.fx||[];t.fx.push({id:uid(),type:'custom',p:{mix:E.mix,cid:E.id},on:true});if(ctx)rebuild(t);dirty();fsMsg('トラック「'+t.name+'」のエフェクト欄に追加しました')};
 $f('fsExp').onclick=()=>dl((fs.cur.name.replace(/[^\w\-ぁ-んァ-ヶ一-龠]/g,'_')||'effect')+'.json',JSON.stringify({kind:'daw-custom-effect',ver:1,effect:fs.cur},null,1),'application/json');
 $f('fsImp').onclick=()=>$f('fsF').click();
 $f('fsF').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)return;

@@ -152,7 +152,8 @@ aside{min-width:0;overflow-x:hidden}
 /* ブロック内オートメーション: 既存の配色変数を使用し、ライト/ダーク自動追従 */
 #patAuto.on{background:var(--acc);color:#fff;border-color:var(--acc)}
 #patAutoKind{max-width:110px}
-#sgAT,#sgDelAT,#sgbar>#akind{display:none!important}
+.autoed{outline:2px solid #d4a017;outline-offset:1px;border-radius:3px}
+#abar select{max-width:240px}
 
 /* ===== LMMS-inspired desktop skin / MDI window layout ===== */
 :root[data-lmms="1"]{--bg:#24272d;--panel:#30343b;--fg:#e4e7eb;--mut:#a2a8b2;--line:#17191d;--acc:#7eaa38;--note:#8fbd43;--black:#3a4048;--beat:#454c56;--bar:#747d89}
