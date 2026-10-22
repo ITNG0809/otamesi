@@ -324,3 +324,44 @@ aside{min-width:0;overflow-x:hidden}
 :root[data-lmms="1"] .lmms-editor-preview:active .lmms-preview-caption{color:#b8e77a}
 @media(max-width:760px){:root[data-lmms="1"] main>.lmms-editor-host{min-width:260px;min-height:220px;width:calc(100% - 16px)!important;height:calc(100% - 42px)!important;left:8px!important;top:8px!important}:root[data-lmms="1"] .lmms-preview-caption{font-size:11px;padding:7px 8px}}
 :root[data-lmms="1"] .lmms-editor-preview canvas{image-rendering:auto;max-width:none}
+
+/* True separate Piano Roll instance: the original editor canvas and pointer handlers run inside the window. */
+#lmms-piano-frame{display:block;flex:1 1 auto;width:100%;height:100%;min-width:0;min-height:0;border:0;background:var(--bg)}
+:root[data-lmms="1"] main>.lmms-editor-host>#lmms-piano-frame{position:relative;flex:1 1 auto;width:100%;height:100%;min-width:0;min-height:0;border:0}
+body.piano-embed{margin:0!important;padding:0!important;height:100vh!important;min-height:0!important;overflow:hidden!important}
+body.piano-embed>svg,body.piano-embed>header,body.piano-embed>#hs,body.piano-embed>.bar2:not(#pianoTools),body.piano-embed>#mx,body.piano-embed>#dock{display:none!important}
+body.piano-embed>main{position:fixed!important;inset:0 0 48px 0!important;display:flex!important;flex-direction:column!important;width:100%!important;height:auto!important;min-height:0!important;margin:0!important;padding:0!important;overflow:hidden!important;gap:0!important}
+body.piano-embed>main>aside{display:none!important}
+body.piano-embed>main>#rc{position:relative!important;inset:auto!important;display:flex!important;flex:1 1 auto!important;flex-direction:column!important;width:100%!important;height:100%!important;min-width:0!important;min-height:0!important;max-width:none!important;max-height:none!important;margin:0!important;padding:0!important;overflow:hidden!important;border:0!important;border-radius:0!important;box-shadow:none!important;resize:none!important}
+body.piano-embed #rt{display:flex!important;flex:1 1 auto!important;min-height:0!important;height:100%!important}
+body.piano-embed #roll{flex:1 1 auto!important;min-width:0!important;min-height:0!important;height:100%!important}
+body.piano-embed #pianoTools{display:flex!important;position:fixed!important;left:0!important;right:0!important;bottom:0!important;z-index:100!important;height:48px!important;min-height:48px!important;max-height:48px!important;overflow-x:auto!important;overflow-y:hidden!important;flex-wrap:nowrap!important;white-space:nowrap!important;margin:0!important;padding:4px!important;background:var(--panel)!important;border-top:1px solid var(--line)!important;gap:4px!important}
+body.piano-embed #pianoTools #pinfo{display:none!important}
+body.piano-embed #pianoTools input,body.piano-embed #pianoTools select,body.piano-embed #pianoTools button{flex-shrink:0!important}
+body.piano-embed .lmms-window,body.piano-embed #lmmsMenu,body.piano-embed #lmmsTaskbar{display:none!important}
+/* Song controls belong to the Song Editor window; the main instance does not expose a duplicate piano toolbar. */
+:root[data-lmms="1"] body:not(.piano-embed)>#pianoTools{display:none!important}
+:root[data-lmms="1"] main>.lmms-editor-host>#sgbar,:root[data-lmms="1"] main>.lmms-editor-host>#abar{flex:0 0 auto;max-width:100%;overflow-x:auto;overflow-y:hidden;white-space:nowrap}
+:root[data-lmms="1"] main>.lmms-editor-host>#rc{flex:1 1 auto;min-height:0}
+
+/* Independent SF2 Library and Custom Effects windows. Their inner controls and data handlers stay original. */
+:root[data-lmms="1"] main>#sfl.lmms-window,
+:root[data-lmms="1"] main>#fxs.lmms-window{position:absolute;inset:auto;display:flex;flex-direction:column;min-width:300px;min-height:220px;margin:0;padding:0;resize:both;overflow:hidden;background:var(--bg);border:1px solid #1c1e21;border-radius:2px;box-shadow:1px 2px 6px #0009;z-index:30;overscroll-behavior:contain}
+:root[data-lmms="1"] main>#sfl.lmms-window{z-index:31}
+:root[data-lmms="1"] main>#fxs.lmms-window{z-index:32}
+:root[data-lmms="1"] main>#sfl.lmms-window.lmms-active,
+:root[data-lmms="1"] main>#fxs.lmms-window.lmms-active{z-index:35;border-color:#8fbd43;box-shadow:0 0 0 1px #8fbd43,1px 2px 6px #0009}
+:root[data-lmms="1"] main>#sfl[hidden],:root[data-lmms="1"] main>#fxs[hidden]{display:none!important}
+:root[data-lmms="1"] main>#sfl>.lmms-titlebar,
+:root[data-lmms="1"] main>#fxs>.lmms-titlebar{flex:0 0 29px}
+:root[data-lmms="1"] main>#sfl>.sflt,
+:root[data-lmms="1"] main>#fxs>.fxt{flex:0 0 auto;max-height:40%;overflow:auto}
+:root[data-lmms="1"] main>#sfl>.sflm,
+:root[data-lmms="1"] main>#fxs>.fxm{flex:1 1 auto;min-width:0;min-height:0;overflow:hidden}
+:root[data-lmms="1"] main>#sfl>#sflLog{flex:0 1 auto;max-height:70px}
+:root[data-lmms="1"] main>#sfl>#sflInfo{flex:0 0 auto;max-height:44px;overflow:auto}
+:root[data-lmms="1"] main>#fxs>#fsMsg{flex:0 0 auto}
+@media(max-width:760px){
+ :root[data-lmms="1"] main>#sfl.lmms-window,:root[data-lmms="1"] main>#fxs.lmms-window{min-width:260px;min-height:220px;width:calc(100% - 16px)!important;height:calc(100% - 42px)!important}
+ :root[data-lmms="1"] main>#sfl>.sflt,:root[data-lmms="1"] main>#fxs>.fxt{max-height:42%;overflow:auto}
+}

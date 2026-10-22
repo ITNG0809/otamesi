@@ -80,7 +80,7 @@ const snap=()=>JSON.stringify(S,function(k,v){return(k==='notes'&&this&&this.wav
 function pushUndo(){undo.push(snap());if(undo.length>100)undo.shift();redo=[]}
 function restore(j){S=JSON.parse(j);normS();if(!S.projectName)S.projectName='BGM';sel=Math.min(sel,S.tracks.length-1);selNote=null;selSet.clear();$('bpm').value=S.bpm;updateTabTitle();renderTracks();draw();dirty()}
 let saveT=null;
-function dirty(){NC=null;AC=null;$('st').textContent='未保存の変更あり';clearTimeout(saveT);saveT=setTimeout(saveDB,800)}
+function dirty(){NC=null;AC=null;$('st').textContent='未保存の変更あり';clearTimeout(saveT);saveT=setTimeout(saveDB,800);window.__BGMQueueSharedSync?.()}
 const dbp=new Promise((res,rej)=>{
   if(!window.indexedDB)return rej(new Error('IndexedDB非対応'));
   const r=indexedDB.open('browser-daw',3);r.onupgradeneeded=()=>{const d=r.result;for(const n of ['p','a','sfl','sfb'])if(!d.objectStoreNames.contains(n))d.createObjectStore(n)};
@@ -1032,7 +1032,7 @@ function drawSong(){
 }
 function setView(v){if(v===VIEW)return;syncBuf();svTop[VIEW]=roll.scrollTop;svLeft[VIEW]=roll.scrollLeft;VIEW=v;selSet.clear();selNote=null;drag=null;
   $('vlw').style.display=v==='roll'?'':'none';$('sgbar').style.display=v==='song'?'flex':'none';$('abar').style.display=v==='auto'?'flex':'none';
-  $('vSong').classList.toggle('on',v==='song');$('vRoll').classList.toggle('on',v==='roll');draw();roll.scrollTop=svTop[v];roll.scrollLeft=svLeft[v]||0;draw();syncSongBar()}
+  $('vSong').classList.toggle('on',v==='song');$('vRoll').classList.toggle('on',v==='roll');draw();roll.scrollTop=svTop[v];roll.scrollLeft=svLeft[v]||0;draw();syncSongBar();window.__BGMQueueSharedSync?.();window.__BGMOnViewChanged?.(v)}
 $('vSong').onclick=()=>{PAEdit=false;$('patAuto').classList.remove('on');$('patAutoKind').style.display='none';setView('song')};$('vRoll').onclick=()=>setView('roll');
 function openPattern(q){const P=S.patterns.find(p=>p.id===q.pid);if(!P)return;syncBuf();bufObj=null;EP=P;S.edit=P.id;sel=q.ti;selSet.clear();selNote=null;sSel=q;
   setView('roll');renderTracks();draw();roll.scrollLeft=0;$('st').textContent='パターン「'+P.name+'」を編集中(ソング画面に戻るとブロックに反映されます)'}
@@ -1306,8 +1306,9 @@ function fsMsg(t){fs.tmsg=Date.now();$f('fsMsg').textContent=t}
 function newCfx(){const a={id:uid(),name:'マイエフェクト '+(S.cfx.length+1),ver:1,mix:1,on:true,nodes:[{id:uid(),type:'in',x:40,y:140,p:{}},{id:uid(),type:'out',x:560,y:140,p:{}}],edges:[]};
   a.edges.push({id:uid(),from:a.nodes[0].id,fp:'out',to:a.nodes[1].id,tp:'in'});S.cfx.push(a);dirty();return a}
 function openStudio(cid){let e=S.cfx.find(x=>x.id===cid)||S.cfx[0]||newCfx();fs.cur=e;fs.selN=fs.selE=null;fs.ust=[];fs.rst=[];fs.pend=null;
-  $f('fxs').hidden=false;document.body.classList.add('fxopen');fsPal();fsList();fsRender();fsFit()}
-function fsClose(){fsStopAud();$f('fxs').hidden=true;document.body.classList.remove('fxopen');renderMx()}
+  $f('fxs').hidden=false;document.body.classList.add('fxopen');fsPal();fsList();fsRender();fsFit();window.BGMNotpcLMMSUI?.restoreEffects()}
+function fsClose(){fsStopAud();$f('fxs').hidden=true;document.body.classList.remove('fxopen');renderMx();window.BGMNotpcLMMSUI?.syncWindowButtons?.()}
+window.BGMNotpcCloseEffects=fsClose
 function fsList(){const sl=$f('fsSel');sl.innerHTML=S.cfx.map(x=>'<option value="'+x.id+'"'+(x===fs.cur?' selected':'')+'>'+fsEsc(x.name)+'</option>').join('');$f('fsName').value=fs.cur.name}
 function fsPal(){const cats={};for(const k in CN)(cats[CN[k].cat]=cats[CN[k].cat]||[]).push(k);
   $f('fsPal').innerHTML=Object.keys(cats).map(c=>'<b>'+c+'</b>'+cats[c].map(k=>'<button data-add="'+k+'">'+CN[k].n+'</button>').join('')).join('');
@@ -1555,8 +1556,8 @@ function libRender(){if($f('sfl').hidden)return;const sl=sflL.scrollTop,sr=sflR.
   let mem=0,n=0;for(const x of LIB.files.values())if(x.sf){mem+=libMem(x);n++}const fo=LIB.folders.find(x=>x.id===LIB.selFolder),el=$f('sflInfo'),base='登録 '+LIB.files.size+'件 / 読込中 '+n+'件 / メモリ約'+MB(mem)+' / 追加先: '+(fo?'📁'+fo.name:'未分類');
   el.textContent=base;if(navigator.storage&&navigator.storage.estimate)navigator.storage.estimate().then(e=>{el.textContent=base+' / ブラウザ保存領域 '+MB(e.usage||0)+' / '+MB(e.quota||0)}).catch(()=>{})}
 const sflL=$f('sflL'),sflR=$f('sflR');
-function openLib(){LIB.tgt=sel;$f('sfl').hidden=false;document.body.classList.add('fxopen');libRender()}
-function closeLib(){$f('sfl').hidden=true;document.body.classList.remove('fxopen');renderTracks()}
+function openLib(){LIB.tgt=sel;$f('sfl').hidden=false;document.body.classList.add('fxopen');libRender();window.BGMNotpcLMMSUI?.restoreSF2Library()}
+function closeLib(){$f('sfl').hidden=true;document.body.classList.remove('fxopen');renderTracks();window.BGMNotpcLMMSUI?.syncWindowButtons?.()}
 $('sflB').onclick=openLib;$f('sflClose').onclick=closeLib;$f('sflAdd').onclick=()=>$('sf2f').click();
 $f('sflQ').oninput=e=>{LIB.q=e.target.value;LIB.limit=200;libRender()};
 $f('sflOrd').onchange=e=>{LIB.order=e.target.value;libSave();renderTracks();libRender()};
@@ -1843,4 +1844,27 @@ window.BGMProjectIO={
   exportAudio:()=>openExport(),
   reset:()=>$('reset').click()
 };
-loadDB().then(()=>{$('roll').scrollTop=(HI-1-76)*RH;loadAudioFiles();libInit()});
+// Keep Song Editor and the independent Piano Roll instance on the same project data.
+const __bgmSyncId=Math.random().toString(36).slice(2);
+let __bgmApplyingShared=false,__bgmSyncTimer=null;
+let __bgmChannel=null;
+try{if('BroadcastChannel' in window)__bgmChannel=new BroadcastChannel('bgm-notpc-project-sync-v1')}catch(_){__bgmChannel=null}
+window.__BGMGetProjectSnapshot=()=>snap();
+window.__BGMQueueSharedSync=()=>{
+  if(__bgmApplyingShared||!__bgmChannel)return;
+  clearTimeout(__bgmSyncTimer);
+  __bgmSyncTimer=setTimeout(()=>{try{__bgmChannel.postMessage({type:'project',sender:__bgmSyncId,data:snap()})}catch(_){}},35);
+};
+if(__bgmChannel)__bgmChannel.addEventListener('message',e=>{
+  const m=e.data;if(!m||m.type!=='project'||m.sender===__bgmSyncId||typeof m.data!=='string')return;
+  try{
+    __bgmApplyingShared=true;S=JSON.parse(m.data);normS();if(!S.projectName)S.projectName='BGM';
+    sel=Math.max(0,Math.min(sel,S.tracks.length-1));selNote=null;selSet.clear();
+    EP=S.patterns.find(p=>p.id===S.edit)||S.patterns[0]||null;bufObj=null;NC=null;AC=null;
+    $('bpm').value=S.bpm;updateTabTitle();renderTracks();draw();
+  }catch(err){console.warn('Shared project sync failed',err)}finally{__bgmApplyingShared=false}
+});
+loadDB().then(()=>{
+  $('roll').scrollTop=(HI-1-76)*RH;loadAudioFiles();libInit();
+  if(__bgmChannel){setTimeout(()=>{try{__bgmChannel.postMessage({type:'project',sender:__bgmSyncId,data:snap()})}catch(_){}},120)}
+});;
