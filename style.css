@@ -424,3 +424,5 @@ body.automation-embed #abar{display:flex!important;position:fixed!important;left
 body.automation-embed>main{inset:44px 0 0 0!important}
 body.automation-embed .lmms-window,body.automation-embed #lmmsMenu,body.automation-embed #lmmsTaskbar{display:none!important}
 @media(max-width:760px){:root[data-lmms="1"] main>#lmms-auto-window{min-width:260px;min-height:220px;width:calc(100% - 16px)!important;height:calc(100% - 42px)!important;left:8px!important;top:8px!important}}
+
+.atl.on{background:#2f6fed!important;color:#fff!important;border-color:#2f6fed!important}

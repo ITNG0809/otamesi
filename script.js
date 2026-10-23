@@ -11,47 +11,18 @@ const fresh=()=>{const P={id:uid(),name:'Pattern 1',color:TCOL[0],len:16,notes:[
 S=fresh();
 
 /* ---------- audio ---------- */
-/* Live pitch automation: keep active voices connected to the current automation curve,
-   so editing a curve while playback is running also affects notes that are already sounding. */
-const LIVEPITCH=new Set();
-function trackLivePitch(src,t,when,dur){
-  if(!src||!src.detune||VB==null)return;
-  const rec={src,t,par:src.detune,startTime:when,endTime:when+Math.max(.05,dur),startBeat:VB,
-    pat:PA&&PA.p||null,localBeat:PA&&PA.p?PA.b:0};
-  LIVEPITCH.add(rec);
-  src.onended=()=>LIVEPITCH.delete(rec);
-}
-function updateLivePitch(){
-  if(!playing||!ctx||!LIVEPITCH.size)return;
-  const now=ctx.currentTime;
-  for(const r of [...LIVEPITCH]){
-    if(now>=r.endTime+.05){LIVEPITCH.delete(r);continue}
-    if(now<r.startTime)continue;
-    const beat=r.startBeat+(now-r.startTime)/spb();
-    let cents=0;
-    if(r.pat){
-      cents=patAutoPitch(r.pat,r.localBeat+(now-r.startTime)/spb());
-    }else{
-      const v=evalPid('trk:'+r.t.id+':pitch',beat);
-      cents=v==null?0:v*100;
-    }
-    try{
-      r.par.cancelScheduledValues(now);
-      r.par.setTargetAtTime(Math.max(-4800,Math.min(4800,cents)),now,.012);
-    }catch(_){}
-  }
-}
 function initAudio(){
   if(ctx){if(ctx.state!=='running')ctx.resume();return}
   ctx=new (window.AudioContext||window.webkitAudioContext)();
   const c=ctx.createDynamicsCompressor();master=ctx.createGain();master.gain.value=S.master==null?.8:S.master;master.connect(c);c.connect(ctx.destination);an=ctx.createAnalyser();c.connect(an);meter();ensureWL(ctx).then(rebuildAll).catch(()=>{});
   ctx.resume();
 }
-function voice(t,p,v,when,dur){PC=(VB==null)?null:pitchCurve(t,VB,dur/spb());if(PA&&PA.p){const av=patAutoVal(PA.p,PA.b,'vol');v=Math.max(0,Math.min(127,v*av));const ev=patAutoVal(PA.p,PA.b,'echo');try{const ch=getCh(t);ch.eg.gain.setValueAtTime(Math.max(0,Math.min(1,ev)),when)}catch(_){}}if(t.sf&&sfRes(t))sfVoice(t,p,v,when,dur);else synthVoice(t,p,v,when,dur);PC=null;PA=null}
+function bindPb(t,par,node,bus){try{const pb=getCh(t)[bus||'pb'];pb.connect(par);node.addEventListener('ended',()=>{try{pb.disconnect(par)}catch(_){}})}catch(_){}}
+function voice(t,p,v,when,dur){PC=(VB==null||!(PA&&PA.p))?null:pitchCurve(t,VB,dur/spb());if(PA&&PA.p){const av=patAutoVal(PA.p,PA.b,'vol');v=Math.max(0,Math.min(127,v*av));const ev=patAutoVal(PA.p,PA.b,'echo');try{const ch=getCh(t);ch.eg.gain.setValueAtTime(Math.max(0,Math.min(1,ev)),when)}catch(_){}}if(t.sf&&sfRes(t))sfVoice(t,p,v,when,dur);else synthVoice(t,p,v,when,dur);PC=null;PA=null}
 function synthVoice(t,p,v,when,dur){
   const o=ctx.createOscillator(),f=ctx.createBiquadFilter(),g=ctx.createGain();
-  o.type=t.wave;o.frequency.value=440*Math.pow(2,(p-69)/12);if(PC)applyDet(o.detune,when,PC);trackLivePitch(o,t,when,dur);
-  f.type='lowpass';f.frequency.value=t.cut;
+  o.type=t.wave;o.frequency.value=440*Math.pow(2,(p-69)/12);bindPb(t,o.detune,o);if(PC)applyDet(o.detune,when,PC);
+  f.type='lowpass';f.frequency.value=t.cut;bindPb(t,f.detune,o,'cb');
   const pk=(v/127)*.35,A=.01,R=.12,end=when+Math.max(dur,.05);
   g.gain.setValueAtTime(0,when);g.gain.linearRampToValueAtTime(pk,when+A);
   g.gain.setValueAtTime(pk*.8,Math.max(end,when+A));g.gain.linearRampToValueAtTime(0,end+R);
@@ -61,17 +32,14 @@ const anySolo=()=>S.tracks.some(t=>t.solo)||AT().some(t=>t.solo);
 const audible=t=>!t.mute&&(!anySolo()||t.solo);
 const spb=()=>60/S.bpm;
 function schedule(){
-  updateLivePitch();
   const ahead=ctx.currentTime+.15;
   while(nextTime<ahead){
     const b0=nextBeat, end=blockPlayback?blockPlayback.end:S.len;
     for(const e of songNotes())if(e.s>=b0-1e-6&&e.s<b0+SNAP-1e-6&&(!blockPlayback||(e.s>=blockPlayback.start-1e-6&&e.s<blockPlayback.end-1e-6&&e.ti===blockPlayback.ti))&&audible(e.t)){
       VB=e.s;PA={p:e.pat,b:e.localS};voice(e.t,e.p,e.v,nextTime+(e.s-b0)*spb(),Math.min(e.d,Math.max(0,end-e.s))*spb());VB=null;PA=null
     }
-    if(!blockPlayback){
-      for(const tr of AT())for(const c of tr.clips)if(c.s>=b0-1e-6&&c.s<b0+SNAP-1e-6)startClip(c,tr,nextTime+(c.s-b0)*spb(),c.o,Math.min(c.d,(S.len-c.s)*spb()),true);
-      try{schedAuto(b0,nextTime,spb());schedFxAuto(b0,nextTime,spb())}catch(err){console.warn('automation',err)}
-    }
+    if(!blockPlayback)for(const tr of AT())for(const c of tr.clips)if(c.s>=b0-1e-6&&c.s<b0+SNAP-1e-6)startClip(c,tr,nextTime+(c.s-b0)*spb(),c.o,Math.min(c.d,(S.len-c.s)*spb()),true);
+    try{schedAuto(b0,nextTime,spb());schedFxAuto(b0,nextTime,spb())}catch(err){console.warn('automation',err)}
     nextTime+=SNAP*spb();nextBeat+=SNAP;
     if(nextBeat>=end-1e-6){
       if(loop){nextBeat=blockPlayback?blockPlayback.start:0}
@@ -86,7 +54,7 @@ function play(){
   timer=setInterval(schedule,25);schedule();setPlayUI(true);requestAnimationFrame(frame);
 }
 let startRef={t:0,b:0};
-function pause(){playing=false;blockPlayback=null;const bb=$('blockPlay');if(bb){bb.classList.remove('on');bb.innerHTML=ico('play');bb.setAttribute('aria-label','ブロック内を再生');bb.dataset.tip='選択中のソングブロックだけ再生'}clearInterval(timer);ASRC.forEach(x=>{try{x.stop()}catch(e){}});ASRC.clear();LIVEPITCH.clear();resetAuto();setPlayUI(false)}
+function pause(){playing=false;blockPlayback=null;const bb=$('blockPlay');if(bb){bb.classList.remove('on');bb.innerHTML=ico('play');bb.setAttribute('aria-label','ブロック内を再生');bb.dataset.tip='選択中のソングブロックだけ再生'}clearInterval(timer);ASRC.forEach(x=>{try{x.stop()}catch(e){}});ASRC.clear();resetAuto();setPlayUI(false)}
 let prevPx=0;
 function followPlayhead(){const px=playBeat*BW,v=x=>x>=roll.scrollLeft&&x<=roll.scrollLeft+roll.clientWidth-24;if(v(prevPx)&&!v(px))roll.scrollLeft=Math.max(0,px-60);prevPx=px}
 function stop(rewind){pause();if(rewind){playBeat=0;roll.scrollLeft=0}draw();upPos()}
@@ -111,7 +79,7 @@ const snap=()=>JSON.stringify(S,function(k,v){return(k==='notes'&&this&&this.wav
 function pushUndo(){undo.push(snap());if(undo.length>100)undo.shift();redo=[]}
 function restore(j){S=JSON.parse(j);normS();if(!S.projectName)S.projectName='BGM';sel=Math.min(sel,S.tracks.length-1);selNote=null;selSet.clear();$('bpm').value=S.bpm;updateTabTitle();renderTracks();draw();dirty()}
 let saveT=null;
-function dirty(){NC=null;AC=null;ADC=new Map();try{refreshAutoMarks()}catch(_){}$('st').textContent='未保存の変更あり';clearTimeout(saveT);saveT=setTimeout(saveDB,800);window.__BGMQueueSharedSync?.()}
+function dirty(){NC=null;AC=null;ADC=new Map();if(typeof autoResyncSoon==='function')autoResyncSoon();try{refreshAutoMarks()}catch(_){}$('st').textContent='未保存の変更あり';clearTimeout(saveT);saveT=setTimeout(saveDB,800);window.__BGMQueueSharedSync?.()}
 const dbp=new Promise((res,rej)=>{
   if(!window.indexedDB)return rej(new Error('IndexedDB非対応'));
   const r=indexedDB.open('browser-daw',3);r.onupgradeneeded=()=>{const d=r.result;for(const n of ['p','a','sfl','sfb'])if(!d.objectStoreNames.contains(n))d.createObjectStore(n)};
@@ -502,7 +470,7 @@ function sfVoice(t,p,v,when,dur){
   for(const z of SFO.sf.zones(pr)){if(p<z.klo||p>z.khi||v<z.vlo||v>z.vhi)continue;
     const ab=SFO.sf.sBuf(z.si);if(!ab)continue;const s=SFO.sf.samples[z.si];
     const src=ctx.createBufferSource();src.buffer=ab;
-    const rate=Math.pow(2,((p-z.root)*100+z.tune)/1200);src.playbackRate.value=rate;if(PC)applyDet(src.detune,when,PC);trackLivePitch(src,t,when,dur);
+    const rate=Math.pow(2,((p-z.root)*100+z.tune)/1200);src.playbackRate.value=rate;bindPb(t,src.detune,src);if(PC)applyDet(src.detune,when,PC);
     if(z.loop&&s.el>s.sl+8){src.loop=true;src.loopStart=(s.sl-s.start)/ab.sampleRate;src.loopEnd=(s.el-s.start)/ab.sampleRate}
     const g=ctx.createGain(),pn=ctx.createStereoPanner();pn.pan.value=Math.max(-1,Math.min(1,z.pan/500));
     const peak=Math.pow(v/127,2)*Math.pow(10,-z.att/200)*.6,lvl=Math.pow(10,-z.sus/200);
@@ -560,7 +528,7 @@ function mkFx(type,p){
  {const h0=h;h=q=>h0(type==='custom'?q:clampP(type,q))}
  h(p);return{I,O,h,sy,cu,bp:v=>{byp=v;ap()},ds:()=>{dsp.forEach(g=>{try{g()}catch(e){}});try{I.disconnect();O.disconnect()}catch(e){}}}}
 let CH=new WeakMap(),FXN=new WeakMap();
-function getCh(t){let c=CH.get(t);if(!c){c={in:ctx.createGain(),pan:ctx.createStereoPanner(),f:[],vg:ctx.createGain(),eg:ctx.createGain()};c.in.gain.value=t.vol==null||!isFinite(+t.vol)?.7:+t.vol;c.pan.connect(c.vg);c.vg.connect(master);c.eg.gain.value=0;c.ec=mkFx('delay',{mix:1,time:.3,fb:.35});c.vg.connect(c.eg);c.eg.connect(c.ec.I);c.ec.O.connect(master);CH.set(t,c);rebuild(t)}return c}
+function getCh(t){let c=CH.get(t);if(!c){c={in:ctx.createGain(),pan:ctx.createStereoPanner(),f:[],vg:ctx.createGain(),eg:ctx.createGain()};c.in.gain.value=t.vol==null||!isFinite(+t.vol)?.7:+t.vol;c.pb=ctx.createConstantSource();c.pb.offset.value=0;c.pb.start();c.cb=ctx.createConstantSource();c.cb.offset.value=0;c.cb.start();c.pan.connect(c.vg);c.vg.connect(master);c.eg.gain.value=0;c.ec=mkFx('delay',{mix:1,time:.3,fb:.35});c.vg.connect(c.eg);c.eg.connect(c.ec.I);c.ec.O.connect(master);CH.set(t,c);rebuild(t)}return c}
 const chIn=t=>getCh(t).in;
 const MIXP=[0,1,1,.01,'ミックス'],SYN=[0,1,0,1,'テンポ同期',['OFF','ON']],SHP=[0,2,0,1,'波形',['サイン','三角','矩形']];
 Object.assign(FXD,{
@@ -1133,8 +1101,9 @@ $('del').onclick=delSel;$('dup').onclick=dupSel;
    接続先ID: master:vol / trk:<トラックID>:vol|pan|echo|pitch / fx:<トラックID>:<エフェクトID>:on|<パラメータ名> */
 const ADEF={vol:1,echo:0,pitch:0},KN={vol:'音量',pitch:'ピッチ',echo:'エコー'},KC={vol:'#2f6fed',pitch:'#2da44e',echo:'#d4a017'};
 const APCOL=['#2f6fed','#e5484d','#2da44e','#d4a017','#8957e5','#0aa5a5','#e0702d','#d6409f'];
-let OPENEV=null,GRID=.25,AC=null,ADC=new Map(),EA=null,EQ=null,eaId=null,eqId=null,selA=null,asel=new Set(),ad=null,adr=null,ACLIP=null,lastTapA={q:null,t:0},VB=null,PC=null,AGON=true,AUTOGEN=0,AUTOLIVE=new Set(),FXLIVE=new Set(),AVZ={lo:0,hi:1},ATSIG='';
+let ATOOL='add',AGRID=.25,AFOLLOW=true,AM=null,selAs=new Set(),ACBUF=null,OPENEV=null,GRID=.25,AC=null,ADC=new Map(),EA=null,EQ=null,eaId=null,eqId=null,selA=null,asel=new Set(),ad=null,adr=null,ACLIP=null,lastTapA={q:null,t:0},VB=null,PC=null,AGON=true,AUTOGEN=0,AUTOLIVE=new Set(),FXLIVE=new Set(),AVZ={lo:0,hi:1},ATSIG='';
 try{const sv=localStorage.getItem('daw-grid');if(sv&&[...$('grid').options].some(o=>o.value===sv)){$('grid').value=sv;GRID=+sv}}catch(_){}
+try{const sv=localStorage.getItem('daw-agrid');if(sv!=null&&isFinite(+sv)&&+sv>=0)AGRID=+sv}catch(_){}
 $('grid').onchange=e=>{GRID=+e.target.value;try{localStorage.setItem('daw-grid',e.target.value)}catch(_){}draw()};
 const aClamp=(v,a,b)=>v<a?a:v>b?b:v;
 const fmtGain=r=>Math.round(r*100)+'% ('+(r>0?(20*Math.log10(r)).toFixed(1):'-∞')+'dB)';
@@ -1147,8 +1116,9 @@ function buildDesc(pid){const p=String(pid||'').split(':');
   if(p[0]==='trk'){
     if(p[2]==='vol')return{id:pid,label:tn+' / 音量',min:0,max:1,def:.7,unit:'%',man:()=>t.vol==null?.7:t.vol,ap:()=>ctx?getCh(t).in.gain:null,fmt:fmtGain};
     if(p[2]==='pan')return{id:pid,label:tn+' / パン',min:-1,max:1,def:0,unit:'',man:()=>t.pan||0,ap:()=>ctx?getCh(t).pan.pan:null,fmt:fmtPan};
+    if(p[2]==='cut'){if(t.sf)return null;return{id:pid,label:tn+' / フィルターカットオフ',min:200,max:12000,def:6000,unit:'Hz',log:true,man:()=>t.cut==null?6000:t.cut,ap:()=>ctx?getCh(t).cb.offset:null,xf:r=>1200*Math.log2(Math.max(1,r)/Math.max(1,t.cut==null?6000:t.cut)),fmt:r=>Math.round(r)+'Hz'}}
     if(p[2]==='echo')return{id:pid,label:tn+' / エコー量',min:0,max:1,def:0,unit:'%',man:()=>0,ap:()=>ctx?getCh(t).eg.gain:null,fmt:r=>Math.round(r*100)+'%',echo:t};
-    if(p[2]==='pitch')return{id:pid,label:tn+' / ピッチベンド',note:'ノート発音時に反映',min:-12,max:12,def:0,unit:'半音',semi:true,man:()=>0,ap:null,fmt:r=>(r>0?'+':'')+r.toFixed(2)+'半音'};
+    if(p[2]==='pitch')return{id:pid,label:tn+' / ピッチベンド',note:'再生中リアルタイム',min:-48,max:48,def:0,unit:'半音',semi:true,k:100,man:()=>0,ap:()=>ctx?getCh(t).pb.offset:null,fmt:r=>(r>0?'+':'')+r.toFixed(2)+'半音'};
     return null}
   if(p[0]==='fx'){const e=(t.fx||[]).find(x=>x.id===p[2]);if(!e||e.type==='custom'||!FXD[e.type])return null;const fi=t.fx.indexOf(e)+1,en=fi+'.'+((FXD[e.type][0])||e.type);
     if(p[3]==='on')return{id:pid,label:tn+' / '+en+' / ON-OFF',min:0,max:1,def:1,unit:'',disc:true,man:()=>e.on===false?0:1,ap:null,fmt:r=>r>=.5?'ON':'OFF',fx:{t,e,name:'on'}};
@@ -1157,18 +1127,23 @@ function buildDesc(pid){const p=String(pid||'').split(':');
   return null}
 function autoDesc(pid,fresh){autoIdx();if(!fresh&&ADC.has(pid))return ADC.get(pid);const d=buildDesc(pid);if(!fresh)ADC.set(pid,d);return d}
 function autoParamList(){const L=[{id:'master:vol',label:'マスターボリューム'}];
-  for(const t of S.tracks){for(const k of ['vol','pan','echo','pitch']){const id='trk:'+t.id+':'+k,d=autoDesc(id,true);if(d)L.push({id,label:d.label+(d.note?'('+d.note+')':'')})}
+  for(const t of S.tracks){for(const k of ['vol','pan','cut','echo','pitch']){const id='trk:'+t.id+':'+k,d=autoDesc(id,true);if(d)L.push({id,label:d.label+(d.note?'('+d.note+')':'')})}
     (t.fx||[]).forEach(e=>{e.id=e.id||uid();if(e.type==='custom'||!FXD[e.type])return;for(const k of ['on',...Object.keys(FXD[e.type][1])]){const id='fx:'+t.id+':'+e.id+':'+k,d=autoDesc(id,true);if(d)L.push({id,label:d.label})}})}
   return L}
-const aNorm=(d,r)=>d?aClamp((r-d.min)/((d.max-d.min)||1),0,1):.5;
-function autoReal(pid,a,n){const d=autoDesc(pid);if(!d)return n;if(d.semi)return(n-.5)*2*(a.range||12);let r=d.min+n*(d.max-d.min);if(d.disc&&d.fx&&d.fx.name!=='on')r=Math.round(r);return r}
+const aNorm=(d,r)=>d?(d.log?aClamp(Math.log(Math.max(r,d.min)/d.min)/Math.log(d.max/d.min),0,1):aClamp((r-d.min)/((d.max-d.min)||1),0,1)):.5;
+const autoNormR=aNorm,autoOut=(d,r)=>d.xf?d.xf(r):r*(d.k||1);
+function autoReal(pid,a,n){const d=autoDesc(pid);if(!d)return n;if(d.semi)return(n-.5)*2*(a.range||12);let r=d.log?d.min*Math.pow(d.max/d.min,n):d.min+n*(d.max-d.min);if(d.disc&&d.fx&&d.fx.name!=='on')r=Math.round(r);return r}
 function autoNorm(pid,a,r){const d=autoDesc(pid);if(!d)return aClamp(r,0,1);if(d.semi)return aClamp(r/(2*(a.range||12))+.5,0,1);return aNorm(d,r)}
 const aDef=a=>{const d=a.target?autoDesc(a.target):null;if(d)return d.semi?.5:aNorm(d,d.man());return a.kind==='vol'?1:a.kind==='pitch'?.5:0};
 /* ---- 補間 (描画と再生で共通) ---- */
-function autoVal(a,x){const P=a.pts,n=P.length;if(!n)return aDef(a);if(x<=P[0].t)return P[0].v;if(x>=P[n-1].t)return P[n-1].v;
-  let i=0;while(i<n-2&&x>=P[i+1].t)i++;const p0=P[i],p1=P[i+1],dx=p1.t-p0.t;if(dx<=1e-9)return p1.v;
-  if(a.interp==='step')return p0.v;const u=(x-p0.t)/dx;
-  if(a.interp!=='smooth')return p0.v+(p1.v-p0.v)*u;
+function lfoPeriod(a){const L=a.lfo;return L.mode==='hz'?1/(Math.max(.01,L.hz)*spb()):Math.max(.0625,L.period)}
+function lfoVal(a,x){const L=a.lfo,f0=x/lfoPeriod(a)+L.phase,f=f0-Math.floor(f0);let w;
+  switch(L.shape){case 'tri':w=f<.5?4*f-1:3-4*f;break;case 'square':w=f<.5?1:-1;break;case 'saw':w=2*f-1;break;default:w=Math.sin(2*Math.PI*f)}
+  return aClamp(L.off+L.amp*w,0,1)}
+function autoVal(a,x){if(a.type==='lfo'&&a.lfo)return lfoVal(a,x);const P=a.pts,n=P.length;if(!n)return aDef(a);if(x<=P[0].t)return P[0].v;if(x>=P[n-1].t)return P[n-1].v;
+  let lo=0,hi=n-2;while(lo<hi){const m=(lo+hi+1)>>1;if(P[m].t<=x)lo=m;else hi=m-1}const i=lo,p0=P[i],p1=P[i+1],dx=p1.t-p0.t;if(dx<=1e-9)return p1.v; // 同時刻の点は後の点が優先(値が飛ぶ)
+  const mode=p0.i||a.interp;if(mode==='step')return p0.v;const u=(x-p0.t)/dx;
+  if(mode!=='smooth')return p0.v+(p1.v-p0.v)*u;
   const sl=j=>{const d=P[j+1].t-P[j].t;return d>1e-9?(P[j+1].v-P[j].v)/d:0};
   const tn=j=>{if(j===0)return sl(0);if(j===n-1)return sl(n-2);const A=sl(j-1),B=sl(j);return A*B<=0?0:2*A*B/(A+B)};
   const k=a.smooth==null?1:a.smooth,m0=tn(i)*k,m1=tn(i+1)*k,u2=u*u,u3=u2*u;
@@ -1184,13 +1159,17 @@ function pickClip(pid,b){const L=autoIdx().get(pid);if(!L)return null;let cov=nu
   if(cov)return{e:cov,rel:b-cov.s};if(en&&en.a.end!=='reset')return{e:en,rel:en.l};return null}
 function evalPid(pid,b){const k=pickClip(pid,b);if(!k)return null;const a=k.e.a;return autoReal(pid,a,autoVal(a,Math.min(k.rel,a.len)))}
 /* ---- 再生: AudioParamへ(サンプル精度) ---- */
-function autoBreaks(L,b0,b1){const B=[b0];for(let k=1;k<4;k++)B.push(b0+(b1-b0)*k/4);
-  for(const e of (Array.isArray(L)?L:[])){const a=e&&e.a;if(!e||!a||!Number.isFinite(+e.s)||!Number.isFinite(+e.l))continue;const xs=[e.s,e.s+e.l];if(Number.isFinite(+a.len))xs.push(e.s+ +a.len);for(const p of (Array.isArray(a.pts)?a.pts:[]))if(p&&Number.isFinite(+p.t))xs.push(e.s+ +p.t);for(const x of xs)if(Number.isFinite(x)&&x>b0+1e-7&&x<b1-1e-7)B.push(x)}
+function autoBreaks(L,b0,b1){let K=4;
+  for(const e of L)if(e.a.type==='lfo'&&e.a.lfo){const pr=lfoPeriod(e.a);K=Math.max(K,Math.min(64,Math.ceil((b1-b0)/(pr/16))))}
+  const B=[b0];for(let k=1;k<K;k++)B.push(b0+(b1-b0)*k/K);
+  for(const e of L){const xs=[e.s,e.s+e.l,e.s+e.a.len];for(const p of e.a.pts)xs.push(e.s+p.t);
+    if(e.a.type==='lfo'&&e.a.lfo&&e.a.lfo.shape==='square'){const pr=lfoPeriod(e.a),ph=e.a.lfo.phase;for(let k=Math.floor((b0-e.s)/pr*2-ph*2)-1;k<=Math.ceil((b1-e.s)/pr*2-ph*2)+1;k++)xs.push(e.s+(k/2-ph)*pr)}
+    for(const x of xs)if(x>b0+1e-7&&x<b1-1e-7)B.push(x)}
   B.push(b1);B.sort((x,y)=>x-y);const o=[];for(const x of B)if(!o.length||x-o[o.length-1]>1e-7)o.push(x);return o}
 function schedAuto(b0,when,sp){const idx=autoIdx(),b1=b0+SNAP,T=b=>when+(b-b0)*sp;
-  for(const pid of [...AUTOLIVE])if(!idx.has(pid)){AUTOLIVE.delete(pid);const d=autoDesc(pid),p=d&&d.ap&&d.ap();if(p){p.cancelScheduledValues(when);p.setValueAtTime(d.man(),when)}}
+  for(const pid of [...AUTOLIVE])if(!idx.has(pid)){AUTOLIVE.delete(pid);const d=autoDesc(pid),p=d&&d.ap&&d.ap();if(p){p.cancelScheduledValues(when);p.setValueAtTime(autoOut(d,d.man()),when)}}
   for(const[pid,L]of idx){if(!Array.isArray(L)||!L.length)continue;const d=autoDesc(pid);if(!d||!d.ap)continue;const par=d.ap();if(!par)continue;AUTOLIVE.add(pid);
-    const val=(b,left)=>{const v=evalPid(pid,left?b-1e-7:b);return aClamp(v==null?d.man():v,d.min,d.max)},B=autoBreaks(L,b0,b1);
+    const val=(b,left)=>{const v=evalPid(pid,left?b-1e-7:b);return autoOut(d,aClamp(v==null?d.man():v,d.min,d.max))},B=autoBreaks(L,b0,b1);
     par.setValueAtTime(val(B[0]),T(B[0]));
     for(let i=1;i<B.length;i++){par.linearRampToValueAtTime(val(B[i],true),T(B[i]));par.setValueAtTime(val(B[i]),T(B[i]))}
     if(d.echo){const k=pickClip(pid,b0),a=k&&k.e&&k.e.a;if(a)getCh(d.echo).ec.h({mix:1,time:aClamp(a.tm??.25,.02,1),fb:aClamp(a.fb??.25,0,.85)})}}}
@@ -1203,12 +1182,21 @@ function applyFxAuto(b){const idx=autoIdx(),by=new Map();
 function schedFxAuto(b0,when,sp){const idx=autoIdx();if(!FXLIVE.size&&![...idx.keys()].some(k=>k[0]==='f'))return;const g=AUTOGEN,c=ctx;
   for(let k=0;k<4;k++){const b=b0+k*SNAP/4,dl=Math.max(0,(when+(b-b0)*sp-ctx.currentTime)*1000);setTimeout(()=>{if(g===AUTOGEN&&playing&&c===ctx)try{applyFxAuto(b)}catch(err){console.warn(err)}},dl)}}
 /* 停止・シーク時: 自動制御していた値を手動値へ戻す */
+/* 再生中にオートメーションを編集したとき、先読み済みの予約を破棄して今の曲線で予約し直す(約40ms以内に反映) */
+let RSYT=null;
+function autoResync(){if(!playing||!ctx||nextBeat>1e8)return;const sp=spb(),now=ctx.currentTime,W=[];
+  for(let w=1;w<=12;w++){const b=nextBeat-w*SNAP,t=nextTime-w*SNAP*sp;if(b<-1e-9||t<now-SNAP*sp)break;W.unshift([b,t])}
+  if(!W.length)return;const from=W[0][1];
+  for(const pid of AUTOLIVE){const d=autoDesc(pid),p=d&&d.ap&&d.ap();if(p)p.cancelScheduledValues(Math.max(now,from))}
+  for(const[b,t]of W){try{schedAuto(b,t,sp)}catch(e){console.warn(e)}}}
+function autoResyncSoon(){if(!playing||RSYT)return;RSYT=setTimeout(()=>{RSYT=null;try{autoResync()}catch(e){console.warn(e)}},40)}
 function resetAuto(){AUTOGEN++;if(!ctx)return;
-  for(const pid of AUTOLIVE){const d=autoDesc(pid),p=d&&d.ap&&d.ap();if(p){p.cancelScheduledValues(0);p.value=d.man()}}AUTOLIVE.clear();
+  for(const pid of AUTOLIVE){const d=autoDesc(pid),p=d&&d.ap&&d.ap();if(p){p.cancelScheduledValues(0);p.value=autoOut(d,d.man())}}AUTOLIVE.clear();
   for(const t of S.tracks){const c=CH.get(t);if(c&&c.vg){c.vg.gain.cancelScheduledValues(0);c.vg.gain.value=1;c.eg.gain.cancelScheduledValues(0);c.eg.gain.value=0}}
   if(FXLIVE.size){try{applyFxAuto(-1e9)}catch(_){}}}
-function pitchCurve(t,beat,db){const sp=spb(),n=Math.min(48,Math.max(2,Math.ceil((db+.5)/.125))),pts=[],pid='trk:'+t.id+':pitch',has=autoIdx().has(pid);let any=false;
-  for(let i=0;i<=n;i++){const off=Math.min(db+.5,i*.125),c=PA&&PA.p?patAutoPitch(PA.p,PA.b+off):(has?(evalPid(pid,beat+off)||0)*100:0);pts.push([off*sp,c]);if(Math.abs(c)>.01)any=true}return any?pts:null}
+/* パターン内ピッチオートメーション(従来機能)はノート発音時に曲線を焼き込む。トラック単位のピッチオートメーションはチャンネルのピッチバス(c.pb)でリアルタイムに適用 */
+function pitchCurve(t,beat,db){const sp=spb(),n=Math.min(48,Math.max(2,Math.ceil((db+.5)/.125))),pts=[];let any=false;
+  for(let i=0;i<=n;i++){const off=Math.min(db+.5,i*.125),c=patAutoPitch(PA.p,PA.b+off);pts.push([off*sp,c]);if(Math.abs(c)>.01)any=true}return any?pts:null}
 function applyDet(par,when,pc){par.setValueAtTime(pc[0][1],when);for(let i=1;i<pc.length;i++)par.linearRampToValueAtTime(pc[i][1],when+pc[i][0])}
 const colorFor=pid=>{const m=/:(vol|pitch|echo)$/.exec(pid||'');if(m&&pid[0]==='t')return KC[m[1]];let h=0;for(const ch of String(pid||''))h=(h*31+ch.charCodeAt(0))|0;return APCOL[Math.abs(h)%APCOL.length]};
 function fixAuto(){S.autos=Array.isArray(S.autos)?S.autos:[];S.autotr=Array.isArray(S.autotr)?S.autotr:[];S.aplace=Array.isArray(S.aplace)?S.aplace:[];
@@ -1220,7 +1208,8 @@ function fixAuto(){S.autos=Array.isArray(S.autos)?S.autos:[];S.autotr=Array.isAr
     a.interp=['step','linear','smooth'].includes(a.interp)?a.interp:(a.mode==='curve'?'smooth':'linear');a.mode=a.interp==='smooth'?'curve':'line';
     a.end=a.end==='hold'?'hold':'reset';a.smooth=aClamp(a.smooth==null?1:+a.smooth,0,1);a.range=aClamp(+a.range||12,1,48);
     a.len=Math.max(1,+a.len||16);a.tm=aClamp(+a.tm||.3,.02,1);a.fb=aClamp(a.fb==null?.35:+a.fb,0,.85);
-    a.pts=(Array.isArray(a.pts)?a.pts:[]).map(p=>({t:aClamp(+p.t||0,0,a.len),v:aClamp(+p.v,0,1)})).filter(p=>isFinite(p.v)).sort((x,y)=>x.t-y.t);
+    a.pts=(Array.isArray(a.pts)?a.pts:[]).map(p=>{const o={t:aClamp(+p.t||0,0,a.len),v:aClamp(+p.v,0,1)};if(p.i==='step'||p.i==='linear'||p.i==='smooth')o.i=p.i;return o}).filter(p=>isFinite(p.v)).sort((x,y)=>x.t-y.t);
+    if(a.type==='lfo')fixLfo(a);else delete a.type;
     if(typeof a.target!=='string'||!a.target){ // 旧形式(トラックに紐づいた kind) → 接続先IDへ移行
       const q=S.aplace.find(o=>o.aid===a.id),r=q&&S.autotr.find(x=>x.id===q.tr),t=r&&r.tid&&S.tracks.find(x=>x.id===r.tid);
       if(t){a.target='trk:'+t.id+':'+a.kind;if(a.kind==='vol'){const V=t.vol==null?.7:t.vol;for(const p of a.pts)p.v=aClamp(p.v*V,0,1)}} // 旧: トラック音量×倍率 → 新: 絶対音量(同じ音量になるよう換算)
@@ -1228,157 +1217,240 @@ function fixAuto(){S.autos=Array.isArray(S.autos)?S.autos:[];S.autotr=Array.isAr
     a.color=a.color||colorFor(a.target);a.name=a.name||(KN[a.kind]||'Automation')}
   S.autotr.forEach(r=>{delete r.tid});
   const keep=new Set(S.aplace.map(q=>q.aid));S.autos=S.autos.filter(a=>keep.has(a.id)||a.id===eaId);
-  EA=S.autos.find(a=>a.id===eaId)||null;EQ=S.aplace.find(q=>q.id===eqId)||null;asel=new Set();selA=null;AC=null;ADC=new Map();NC=null;fixCfx()}
+  EA=S.autos.find(a=>a.id===eaId)||null;EQ=S.aplace.find(q=>q.id===eqId)||null;asel=new Set();selA=null;selAs=new Set();AC=null;ADC=new Map();NC=null;fixCfx()}
+function fixLfo(a){const L=a.lfo=a.lfo||{};L.shape=['sine','tri','square','saw'].includes(L.shape)?L.shape:'sine';L.mode=L.mode==='hz'?'hz':'beat';L.period=aClamp(+L.period||4,.0625,64);L.hz=aClamp(+L.hz||1,.05,20);L.amp=aClamp(L.amp==null?.25:+L.amp,0,.5);L.off=aClamp(L.off==null?.5:+L.off,0,1);L.phase=aClamp(+L.phase||0,0,1)}
+const newLfo=target=>{const a=newAuto(target);a.type='lfo';a.interp='linear';a.pts=[];a.lfo={shape:'sine',mode:'beat',period:4,hz:1,amp:.25,off:a.pts.length?.5:aDefN(target),phase:0};fixLfo(a);a.name=a.name+' LFO';return a};
+const aDefN=t=>{const d=autoDesc(t,true);return d?(d.semi?.5:aNorm(d,d.man())):.5};
 const newAuto=target=>{const d=autoDesc(target,true),n0=d?(d.semi?.5:aNorm(d,d.man())):.5;
   return{id:uid(),name:d?d.label:'Automation',color:colorFor(target),kind:/:pitch$/.test(target)?'pitch':/:echo$/.test(target)?'echo':'vol',target,interp:d&&d.disc?'step':'linear',mode:'line',end:'hold',smooth:1,range:12,len:16,tm:.3,fb:.35,pts:[{t:0,v:n0},{t:16,v:n0}]}};
 /* つまみの右クリック等から: 接続先を指定してクリップを作る(空いているオートメーショントラックへ。無ければ追加) */
-function autoCreateFor(pid,s){const d=autoDesc(pid,true);if(!d)return null;pushUndo();const a=newAuto(pid);S.autos.push(a);s=s==null?Math.floor(playBeat/4)*4:s;
+function autoCreateFor(pid,s,type){const d=autoDesc(pid,true);if(!d)return null;pushUndo();const a=type==='lfo'?newLfo(pid):newAuto(pid);S.autos.push(a);s=s==null?Math.floor(playBeat/4)*4:s;
   let row=S.autotr.find(r=>!S.aplace.some(o=>o.tr===r.id&&o.s<s+a.len&&s<o.s+o.l));if(!row){row={id:uid(),name:'Auto '+(S.autotr.length+1)};S.autotr.push(row)}
-  const q={id:uid(),aid:a.id,tr:row.id,s,l:a.len};S.aplace.push(q);fitSong();dirty();return q}
+  const q={id:uid(),aid:a.id,tr:row.id,s,l:a.len};S.aplace.push(q);selOne(q);fitSong();dirty();return q}
 function autoMenu(ev,pid){const d=autoDesc(pid,true);if(!d)return;ev.preventDefault();ev.stopPropagation();ctxClose();
-  const ex=autoIdx().get(pid),items=[['new','「'+d.label+'」のオートメーションクリップを作成']];if(ex&&ex.length)items.push(['open','既存のオートメーションクリップを編集']);
+  const ex=autoIdx().get(pid),items=[];if(ex&&ex.length)items.push(['open','既存のオートメーションクリップを編集(重複を作らない)']);
+  items.push(['new',ex&&ex.length?'別のオートメーションクリップを追加作成':'オートメーションクリップを作成'],['lfo','LFOクリップを作成']);
   const el=document.createElement('div');el.className='ddp ctxm';el.innerHTML='<div class="ddl">'+items.map((it,i)=>'<div class="ddi" data-i="'+i+'"><span class="dt">'+it[1]+'</span></div>').join('')+'</div>';document.body.appendChild(el);
   el.style.left=Math.min(ev.clientX,innerWidth-el.offsetWidth-8)+'px';el.style.top=Math.min(ev.clientY,innerHeight-el.offsetHeight-8)+'px';ctxM={el,act:0,q:null};requestAnimationFrame(()=>el.classList.add('open'));
   el.addEventListener('click',e=>{const r=e.target.closest('.ddi');if(!r)return;ctxClose();const k=items[+r.dataset.i][0];
-    if(k==='new'){const q=autoCreateFor(pid);if(q){selA=q;sSel=null;openAuto(q);$('st').textContent='オートメーションクリップを作成しました。制御点を編集してください'}}else{const e0=ex[ex.length-1];openAuto(e0.q)}})}
+    if(k==='open'){openAuto(ex[ex.length-1].q)}else{const q=autoCreateFor(pid,null,k==='lfo'?'lfo':'curve');if(q){sSel=null;openAuto(q);$('st').textContent=(k==='lfo'?'LFO':'オートメーション')+'クリップを作成しました。'+d.label+' に接続されています'}}})}
 function markAuto(el,pid){if(!el)return;el.dataset.apid=pid;el.addEventListener('contextmenu',e=>autoMenu(e,pid))}
 function refreshAutoMarks(){const idx=autoIdx();document.querySelectorAll('[data-apid]').forEach(el=>{const on=idx.has(el.dataset.apid);el.classList.toggle('autoed',on);el.title=on?'オートメーション接続中(再生中は曲の値が優先されます)  右クリックで編集':'右クリックでオートメーションを作成'})}
 /* ---- ソング上のオートメーション行/クリップ ---- */
-function openAuto(q){const a=S.autos.find(x=>x.id===q.aid);if(!a)return;EA=a;EQ=q;eaId=a.id;eqId=q.id;asel=new Set();AVZ={lo:0,hi:1};svTop.auto=0;if(VIEW==='auto'){roll.scrollLeft=0;draw()}else{setView('auto');roll.scrollLeft=0;draw()}}
-window.__BGMGetAutoSelection=()=>EA&&EQ?{aid:EA.id,qid:EQ.id}:null;
-window.addEventListener('message',e=>{if(e.origin!==location.origin||!e.data||e.data.type!=='bgm-open-auto'||!e.data.selection)return;const q=S.aplace.find(x=>x.id===e.data.selection.qid&&x.aid===e.data.selection.aid);if(q)openAuto(q)});
+
+const selOne=q=>{selA=q;selAs=q?new Set([q]):new Set()};
+const rowIdx=q=>S.autotr.findIndex(r=>r.id===q.tr);
+function openAuto(q){const a=S.autos.find(x=>x.id===q.aid);if(!a)return;EA=a;EQ=q;eaId=a.id;eqId=q.id;asel=new Set();AVZ={lo:0,hi:1};svTop.auto=0;if(a.target&&!autoDesc(a.target))$('st').textContent='⚠ このクリップの接続先が見つかりません(トラック/エフェクトが削除された可能性)。接続先を選び直してください';
+  if(VIEW==='auto'){roll.scrollLeft=0;draw()}else{setView('auto');roll.scrollLeft=0;draw()}}
 function drawAutoBlocks(g2,C,sx,vw){const P0=S.tracks.length;
-  for(const q of S.aplace){const a=S.autos.find(x=>x.id===q.aid),ri=S.autotr.findIndex(r=>r.id===q.tr);if(!a||ri<0)continue;const x=q.s*BW,w=Math.max(3,q.l*BW),y=(P0+ri)*SRH+3,h=SRH-6;if(x>sx+vw||x+w<sx)continue;
-    const ok=!a.target||!!autoDesc(a.target);g2.globalAlpha=.9;g2.fillStyle='#262a30';g2.fillRect(x,y,w,h);g2.globalAlpha=.28;g2.fillStyle=a.color;g2.fillRect(x,y,w,h);g2.globalAlpha=1;
+  for(const q of S.aplace){const a=S.autos.find(x=>x.id===q.aid),ri=rowIdx(q);if(!a||ri<0)continue;const x=q.s*BW,w=Math.max(3,q.l*BW),y=(P0+ri)*SRH+3,h=SRH-6;if(x>sx+vw||x+w<sx)continue;
+    const ok=!a.target||!!autoDesc(a.target),sl=selAs.has(q);g2.globalAlpha=.9;g2.fillStyle='#262a30';g2.fillRect(x,y,w,h);g2.globalAlpha=sl?.4:.28;g2.fillStyle=a.color;g2.fillRect(x,y,w,h);g2.globalAlpha=1;
     g2.save();g2.beginPath();g2.rect(x,y,w,h);g2.clip();g2.strokeStyle=a.color;g2.lineWidth=1.5;g2.beginPath();let f=true;const x0=Math.max(x,sx),x1=Math.min(x+w,sx+vw);
     for(let px=x0;px<=x1+2;px+=2){const v=autoVal(a,Math.min(a.len,(px-x)/BW)),yy=y+h-2-v*(h-4);if(f){g2.moveTo(px,yy);f=false}else g2.lineTo(px,yy)}g2.stroke();
     if(q.l>a.len+1e-9){g2.fillStyle='rgba(0,0,0,.18)';g2.fillRect(x+a.len*BW,y,w-a.len*BW,h)}
-    g2.fillStyle='#fff';g2.font='bold 10px system-ui';g2.shadowColor='rgba(0,0,0,.7)';g2.shadowBlur=2;g2.fillText(fitText(g2,(ok?'':'⚠ ')+a.name,Math.max(8,w-6)),Math.max(x,sx)+4,y+10);g2.restore();
-    g2.lineWidth=selA===q?2:1;g2.strokeStyle=!ok?'#e5484d':selA===q?'#f0f3f5':'rgba(0,0,0,.7)';if(!ok)g2.setLineDash([4,3]);g2.strokeRect(x+.5,y+.5,w-1,h-1);g2.setLineDash([]);g2.lineWidth=1;
-    if(selA===q){g2.fillStyle='rgba(255,255,255,.85)';g2.fillRect(x+w-6,y+4,2,h-8)}}}
+    g2.fillStyle='#fff';g2.font='bold 10px system-ui';g2.shadowColor='rgba(0,0,0,.7)';g2.shadowBlur=2;g2.fillText(fitText(g2,(ok?'':'⚠ ')+(a.type==='lfo'?'∿ ':'')+a.name,Math.max(8,w-6)),Math.max(x,sx)+4,y+10);
+    if(w>96||sl){g2.font='9px system-ui';g2.fillStyle='rgba(255,255,255,.8)';g2.fillText(fmtBarPos(q.s)+' → '+fmtBarPos(q.s+q.l),Math.max(x,sx)+4,y+h-4)}g2.restore();
+    g2.lineWidth=sl?2:1;g2.strokeStyle=!ok?'#e5484d':sl?'#f0f3f5':'rgba(0,0,0,.7)';if(!ok)g2.setLineDash([4,3]);g2.strokeRect(x+.5,y+.5,w-1,h-1);g2.setLineDash([]);g2.lineWidth=1;
+    if(sl){g2.fillStyle='rgba(255,255,255,.85)';g2.fillRect(x+w-6,y+4,2,h-8)}}}
 cv.addEventListener('pointerdown',e=>{if(VIEW!=='song')return;const rc=cv.getBoundingClientRect();if(e.clientY-rc.top<RULER)return;
   const{x,y}=pt(e),ri=Math.floor(y/SRH)-S.tracks.length;if(ri<0||ri>=S.autotr.length)return;cv.setPointerCapture(e.pointerId);const row=S.autotr[ri];let h=null;
   for(let i=S.aplace.length-1;i>=0;i--){const q=S.aplace[i];if(q.tr===row.id&&x>=q.s*BW&&x<=(q.s+q.l)*BW){h=q;break}}
-  if(h){const now=Date.now();if(lastTapA.q===h&&now-lastTapA.t<400){lastTapA={q:null,t:0};ad=null;OPENEV=e;openAuto(h);return}
-    lastTapA={q:h,t:now};selA=h;sSel=null;ad={q:h,mode:(h.s*BW+h.l*BW-x<10&&h.l*BW>24)?'r':'move',ox:x/BW-h.s,before:snap(),moved:false}}
-  else{fillAkind();const tg=$('akind').value;if(!tg||!autoDesc(tg)){$('st').textContent='接続先パラメータを選んでからクリップを追加してください';return}pushUndo();const s=Math.max(0,Math.floor(x/BW/4)*4);if(s>=MAXBARS*4)return;const a=newAuto(tg),q={id:uid(),aid:a.id,tr:row.id,s,l:a.len};S.autos.push(a);S.aplace.push(q);selA=q;sSel=null;fitSong();dirty();lastTapA={q,t:Date.now()}}
+  if(h){const now=Date.now(),mod=e.shiftKey||e.ctrlKey||e.metaKey;
+    if(!mod&&lastTapA.q===h&&now-lastTapA.t<400){lastTapA={q:null,t:0};ad=null;OPENEV=e;openAuto(h);return}
+    lastTapA={q:h,t:now};sSel=null;
+    if(mod){if(selAs.has(h)){selAs.delete(h);if(selA===h)selA=[...selAs][0]||null}else{selAs.add(h);selA=h}ad=null}
+    else{if(!selAs.has(h))selOne(h);selA=h;ad={q:h,mode:(h.s*BW+h.l*BW-x<10&&h.l*BW>24)?'r':'move',ox:x/BW-h.s,ri0:ri,before:snap(),moved:false,g:[...selAs].map(o=>({q:o,s:o.s,ri:rowIdx(o)}))}}}
+  else{fillAkind();const tg=$('akind').value;if(!tg||!autoDesc(tg)){$('st').textContent='接続先パラメータを選んでからクリップを追加してください';return}pushUndo();const s=Math.max(0,Math.floor(x/BW/4)*4);if(s>=MAXBARS*4)return;
+    const a=$('aktype').value==='lfo'?newLfo(tg):newAuto(tg),q={id:uid(),aid:a.id,tr:row.id,s,l:a.len};S.autos.push(a);S.aplace.push(q);selOne(q);sSel=null;fitSong();dirty();lastTapA={q,t:Date.now()}}
   syncSongBar();draw()});
 cv.addEventListener('pointermove',e=>{if(VIEW!=='song'||!ad)return;const{x,y}=pt(e),q=ad.q;
   if(!ad.moved){ad.moved=true;undo.push(ad.before);if(undo.length>100)undo.shift();redo=[]}edgeScroll(e);
-  if(ad.mode==='move'){q.s=Math.max(0,Math.min(MAXBARS*4-q.l,sgSnap(x/BW-ad.ox)));const ri=Math.max(0,Math.min(S.autotr.length-1,Math.floor(y/SRH)-S.tracks.length));q.tr=S.autotr[ri].id}
+  if(ad.mode==='move'){const g0=ad.g.find(o=>o.q===q);let ds=sgSnap(x/BW-ad.ox)-g0.s;
+    ds=Math.max(ds,-Math.min(...ad.g.map(o=>o.s)));ds=Math.min(ds,Math.min(...ad.g.map(o=>MAXBARS*4-o.q.l-o.s)));
+    let dr=Math.floor(y/SRH)-S.tracks.length-ad.ri0;dr=Math.max(dr,-Math.min(...ad.g.map(o=>o.ri)));dr=Math.min(dr,Math.min(...ad.g.map(o=>S.autotr.length-1-o.ri)));
+    for(const o of ad.g){o.q.s=o.s+ds;o.q.tr=S.autotr[o.ri+dr].id}}
   else q.l=Math.max(Math.max(.25,sgG()),Math.min(MAXBARS*4-q.s,sgSnap(x/BW-q.s)));
   dirty();fitSong();draw()});
 const adEnd=()=>{if(!ad)return;const m=ad.moved;ad=null;if(m)dirty();draw()};cv.addEventListener('pointerup',adEnd);cv.addEventListener('pointercancel',adEnd);
 cv.addEventListener('contextmenu',e=>{if(VIEW!=='song')return;const rc=cv.getBoundingClientRect();if(e.clientY-rc.top<RULER)return;const{x,y}=pt(e),ri=Math.floor(y/SRH)-S.tracks.length;if(ri<0||ri>=S.autotr.length)return;e.preventDefault();
-  for(let i=S.aplace.length-1;i>=0;i--){const q=S.aplace[i];if(q.tr===S.autotr[ri].id&&x>=q.s*BW&&x<=(q.s+q.l)*BW){selA=q;sSel=null;syncSongBar();draw();return}}});
-function delAblk(){if(!selA)return;pushUndo();const a=S.autos.find(x=>x.id===selA.aid);S.aplace=S.aplace.filter(q=>q!==selA);if(EQ===selA){EQ=null;eqId=null}selA=null;if(a&&a!==EA&&!S.aplace.some(q=>q.aid===a.id))S.autos=S.autos.filter(x=>x!==a);dirty();syncSongBar();draw()}
-function dupAblk(indep){if(!selA)return;const q0=selA,a=S.autos.find(x=>x.id===q0.aid);if(!a)return;if(q0.s+q0.l*2>MAXBARS*4){alert('最大小節数を超えるため複製できません');return}
-  pushUndo();let aid=a.id;if(indep){const b=JSON.parse(JSON.stringify(a));b.id=uid();b.name=a.name+' (コピー)';S.autos.push(b);aid=b.id}
-  const q={id:uid(),aid,tr:q0.tr,s:q0.s+q0.l,l:q0.l};S.aplace.push(q);selA=q;fitSong();dirty();draw()}
+  for(let i=S.aplace.length-1;i>=0;i--){const q=S.aplace[i];if(q.tr===S.autotr[ri].id&&x>=q.s*BW&&x<=(q.s+q.l)*BW){if(!selAs.has(q))selOne(q);selA=q;sSel=null;syncSongBar();draw();return}}});
+const selQ=()=>S.aplace.filter(q=>selAs.has(q));
+function delAblk(){const L=selQ();if(!L.length)return;pushUndo();const aids=new Set(L.map(q=>q.aid));S.aplace=S.aplace.filter(q=>!selAs.has(q));if(EQ&&L.includes(EQ)){EQ=null;eqId=null}selOne(null);
+  S.autos=S.autos.filter(a=>!aids.has(a.id)||a===EA||S.aplace.some(q=>q.aid===a.id));dirty();syncSongBar();draw()}
+function dupAblk(indep){const L=selQ();if(!L.length)return;const s0=Math.min(...L.map(q=>q.s)),e0=Math.max(...L.map(q=>q.s+q.l)),span=e0-s0;if(e0+span>MAXBARS*4){alert('最大小節数を超えるため複製できません');return}
+  pushUndo();const nn=[];for(const q0 of L){const a=S.autos.find(x=>x.id===q0.aid);if(!a)continue;let aid=a.id;if(indep){const b=JSON.parse(JSON.stringify(a));b.id=uid();b.name=a.name+' (コピー)';S.autos.push(b);aid=b.id}
+    const q={id:uid(),aid,tr:q0.tr,s:q0.s+span,l:q0.l};S.aplace.push(q);nn.push(q)}selAs=new Set(nn);selA=nn[0]||null;fitSong();dirty();draw()}
+/* クリップのコピー/切り取り/貼り付け(貼り付けは独立コピー。既存クリップと重なる場合は空いている行へ置き、上書きしない) */
+function aClipCopy(cut){const L=selQ();if(!L.length)return;const s0=Math.min(...L.map(q=>q.s));
+  ACBUF={items:L.map(q=>({a:JSON.parse(JSON.stringify(S.autos.find(x=>x.id===q.aid))),ds:q.s-s0,l:q.l,ri:rowIdx(q)}))};$('st').textContent=L.length+'個のクリップを'+(cut?'切り取り':'コピー')+'しました';if(cut)delAblk()}
+function aClipPaste(){if(!ACBUF||!ACBUF.items.length)return;pushUndo();const s0=Math.max(0,Math.round(playBeat*4)/4),nn=[];
+  for(const it of ACBUF.items){const a=JSON.parse(JSON.stringify(it.a));a.id=uid();S.autos.push(a);const s=s0+it.ds;if(s+it.l>MAXBARS*4)continue;
+    const free=r=>!S.aplace.some(o=>o.tr===r.id&&o.s<s+it.l&&s<o.s+o.l);let row=S.autotr[Math.min(it.ri,S.autotr.length-1)];if(!row||!free(row))row=S.autotr.find(free);if(!row){row={id:uid(),name:'Auto '+(S.autotr.length+1)};S.autotr.push(row)}
+    const q={id:uid(),aid:a.id,tr:row.id,s,l:it.l};S.aplace.push(q);nn.push(q)}
+  selAs=new Set(nn);selA=nn[0]||null;fitSong();dirty();syncSongBar();draw();$('st').textContent=nn.length+'個のクリップを貼り付けました'}
 $('sgOpen').onclick=()=>{if(selA)openAuto(selA);else if(sSel)openPattern(sSel)};
 $('sgDup').onclick=()=>selA?dupAblk(false):dupPl(false);$('sgCopy').onclick=()=>selA?dupAblk(true):dupPl(true);$('sgDel').onclick=()=>selA?delAblk():delPl();
 $('sgAT').onclick=()=>{pushUndo();S.autotr.push({id:uid(),name:'Auto '+(S.autotr.length+1)});dirty();fitSong();draw();$('st').textContent='オートメーショントラックを追加しました。接続先を選び、トラックの空き部分をクリックしてクリップを置きます'};
 $('sgDelAT').onclick=()=>{if(!selA){alert('削除するオートメーショントラックのクリップを選択してください');return}if(!confirm('このオートメーショントラックと、その上のクリップをすべて削除しますか?'))return;
-  pushUndo();const id=selA.tr;S.autotr=S.autotr.filter(r=>r.id!==id);S.aplace=S.aplace.filter(q=>q.tr!==id);selA=null;fixAuto();dirty();draw()};
+  pushUndo();const id=selA.tr;S.autotr=S.autotr.filter(r=>r.id!==id);S.aplace=S.aplace.filter(q=>q.tr!==id);selOne(null);fixAuto();dirty();draw()};
 function fillAkind(){const L=autoParamList(),sig=L.map(o=>o.id+o.label).join('|'),el=$('akind');if(sig===el.dataset.sig)return;const cur=el.value;el.dataset.sig=sig;el.innerHTML=L.map(o=>'<option value="'+o.id+'">'+o.label.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</option>').join('');
   el.value=L.some(o=>o.id===cur)?cur:(S.tracks[sel]?'trk:'+S.tracks[sel].id+':vol':'master:vol')}
 /* ---- オートメーションエディター ---- */
 const PY0=RULER+12,ph=()=>Math.max(20,roll.clientHeight-PY0-14),clampV=v=>Math.max(0,Math.min(1,v)),sortPts=()=>EA.pts.sort((a,b)=>a.t-b.t);
 const yOfV=v=>PY0+(1-(v-AVZ.lo)/(AVZ.hi-AVZ.lo))*ph(),vOfY=y=>AVZ.lo+(1-(y-PY0)/ph())*(AVZ.hi-AVZ.lo);
-const snapT=t=>{t=AGON&&GRID>0?Math.round(t/GRID)*GRID:t;return Math.max(0,Math.min(EA.len,t))};
+const agrid=()=>AGON&&AGRID>0?AGRID:0;
+const snapT=t=>{const g=agrid();t=g?Math.round(t/g)*g:Math.round(t*1000)/1000;return Math.max(0,Math.min(EA.len,t))};
 function aLbl(a,v){const d=a.target?autoDesc(a.target):null;if(!d)return Math.round(v*100)+'%';return d.fmt(autoReal(a.target,a,v))}
-const fmtBarPos=b=>(Math.floor(b/4)+1)+':'+(Math.floor(b%4+1e-9)+1);
+const fmtBarPos=b=>(Math.floor(b/4+1e-9)+1)+':'+(Math.floor((b%4+4)%4+1e-9)+1);
+const fmtT=b=>{const bar=Math.floor(b/4+1e-9),bt=Math.floor((b-bar*4)+1e-9),tk=Math.round((b-bar*4-bt)*480);return (bar+1)+'小節 '+(bt+1)+'拍 +'+tk+'tick'};
+const TOOLN={sel:'選択ツール: ドラッグで範囲選択 / 点をドラッグで移動',add:'制御点追加ツール: クリックで追加 / ドラッグで移動',del:'制御点削除ツール: 点をクリック、または横切って削除',line:'直線描画ツール: 始点から終点へドラッグすると間に制御点を生成',free:'自由描画ツール: ドラッグした軌跡を間引いて制御点に変換'};
 function boxA(){const d=adr,xa=Math.min(d.x0,d.x1),xb=Math.max(d.x0,d.x1),ya=Math.min(d.y0,d.y1),yb=Math.max(d.y0,d.y1);asel=new Set(d.base);
   for(const p of EA.pts){const x=p.t*BW,y=yOfV(p.v);if(x>=xa&&x<=xb&&y>=ya&&y<=yb)asel.add(p)}}
-function drawAuto(){const a=EA,r=devicePixelRatio||1,vw=Math.max(1,roll.clientWidth),vh=Math.max(1,roll.clientHeight),W=S.len*BW,sx=roll.scrollLeft,d=a.target?autoDesc(a.target):null;
+/* 直線/自由描画: 範囲内の既存点を置き換える */
+function aReplaceRange(n){if(!n.length)return;const t0=n[0].t,t1=n[n.length-1].t;EA.pts=EA.pts.filter(p=>p.t<t0-1e-9||p.t>t1+1e-9).concat(n.map(p=>({t:p.t,v:clampV(p.v)})));sortPts();asel=new Set(EA.pts.filter(p=>p.t>=t0-1e-9&&p.t<=t1+1e-9));dirty()}
+function aLinePts(t0,v0,t1,v1){if(t1<t0){[t0,t1]=[t1,t0];[v0,v1]=[v1,v0]}if(t1-t0<1e-6)return[{t:t0,v:v1}];let st=agrid()||.25;if((t1-t0)/st>128)st=(t1-t0)/128;const o=[];
+  for(let t=t0;t<t1-st*.01;t+=st)o.push({t:Math.round(t*1e5)/1e5,v:v0+(v1-v0)*(t-t0)/(t1-t0)});o.push({t:t1,v:v1});return o}
+function rdp(P,eps){if(P.length<3)return P;const keep=new Uint8Array(P.length);keep[0]=keep[P.length-1]=1;const st=[[0,P.length-1]];
+  while(st.length){const[a,b]=st.pop();let m=-1,id=-1;const ax=P[a].x,ay=P[a].y,bx=P[b].x,by=P[b].y,dx=bx-ax,dy=by-ay,L=Math.hypot(dx,dy)||1e-9;
+    for(let i=a+1;i<b;i++){const d=Math.abs(dy*(P[i].x-ax)-dx*(P[i].y-ay))/L;if(d>m){m=d;id=i}}
+    if(m>eps){keep[id]=1;st.push([a,id],[id,b])}}
+  return P.filter((_,i)=>keep[i])}
+function aFreePts(raw){const g=agrid(),M=new Map();for(const r of raw){const t=g?snapT(r.x/BW):Math.max(0,Math.min(EA.len,Math.round(r.x/BW*1000)/1000));M.set(t,clampV(vOfY(r.y)))}
+  let P=[...M.entries()].sort((a,b)=>a[0]-b[0]).map(([t,v])=>({t,v,x:t*BW,y:v*ph()}));P=rdp(P,1.5);return P.map(p=>({t:p.t,v:p.v}))}
+function drawAuto(){const a=EA,r=devicePixelRatio||1,vw=Math.max(1,roll.clientWidth),vh=Math.max(1,roll.clientHeight),W=S.len*BW,sx=roll.scrollLeft,d=a.target?autoDesc(a.target):null,lfo=a.type==='lfo';
   sz.style.width=W+'px';sz.style.height=vh+'px';const cw=Math.round(vw*r),chh=Math.round(vh*r);if(cv.width!==cw||cv.height!==chh){cv.width=cw;cv.height=chh;cv.style.width=vw+'px';cv.style.height=vh+'px'}
-  const C={panel:css('--panel'),fg:css('--fg'),mut:css('--mut'),line:css('--line'),bar:css('--bar')};
+  const C={panel:css('--panel'),fg:css('--fg'),mut:css('--mut'),line:css('--line'),bar:css('--bar')},G=agrid();
   g2.setTransform(r,0,0,r,0,0);g2.globalAlpha=1;g2.lineWidth=1;g2.fillStyle=C.panel;g2.fillRect(0,0,vw,vh);
   const LX=Math.max(0,a.len*BW-sx);if(LX<vw){g2.globalAlpha=.25;g2.fillStyle=C.mut;g2.fillRect(LX,RULER,vw-LX,vh-RULER);g2.globalAlpha=1}
   g2.save();g2.beginPath();g2.rect(0,RULER,vw,vh-RULER);g2.clip();
   for(let b=Math.max(0,Math.floor(sx/BW));b<=Math.min(S.len,Math.ceil((sx+vw)/BW));b++){const x=b*BW-sx;g2.strokeStyle=b%4===0?C.bar:C.line;g2.globalAlpha=b%4===0?1:.45;g2.beginPath();g2.moveTo(x+.5,RULER);g2.lineTo(x+.5,vh);g2.stroke()}
-  if(GRID>0&&GRID<1-1e-9&&GRID*BW>=6){g2.strokeStyle=C.line;g2.globalAlpha=.25;for(let k=Math.floor(sx/BW/GRID);k<=Math.ceil((sx+vw)/BW/GRID);k++){const bt=k*GRID;if(Math.abs(bt-Math.round(bt))<1e-6)continue;const x=bt*BW-sx;g2.beginPath();g2.moveTo(x+.5,RULER);g2.lineTo(x+.5,vh);g2.stroke()}}
+  if(G>0&&G<1-1e-9&&G*BW>=6){g2.strokeStyle=C.line;g2.globalAlpha=.25;for(let k=Math.floor(sx/BW/G);k<=Math.ceil((sx+vw)/BW/G);k++){const bt=k*G;if(Math.abs(bt-Math.round(bt))<1e-6)continue;const x=bt*BW-sx;g2.beginPath();g2.moveTo(x+.5,RULER);g2.lineTo(x+.5,vh);g2.stroke()}}
   g2.globalAlpha=1;
   for(let q=0;q<=4;q++){const v=AVZ.lo+(AVZ.hi-AVZ.lo)*q/4,y=yOfV(v),mid=d&&d.semi&&Math.abs(v-.5)<1e-6;g2.strokeStyle=mid?C.bar:C.line;g2.lineWidth=mid?1.5:1;g2.beginPath();g2.moveTo(0,y+.5);g2.lineTo(vw,y+.5);g2.stroke();g2.fillStyle=C.mut;g2.font='10px system-ui';g2.fillText(aLbl(a,v),4,y-2)}
-  if(d&&!d.semi){const y=yOfV(aNorm(d,d.man()));if(y>=RULER&&y<=vh){g2.strokeStyle=C.mut;g2.globalAlpha=.7;g2.setLineDash([2,4]);g2.beginPath();g2.moveTo(0,y+.5);g2.lineTo(vw,y+.5);g2.stroke();g2.setLineDash([]);g2.globalAlpha=1;g2.fillStyle=C.mut;g2.fillText('手動値',vw-44,y-2)}}
+  if(d&&!d.semi&&!d.xf){const y=yOfV(aNorm(d,d.man()));if(y>=RULER&&y<=vh){g2.strokeStyle=C.mut;g2.globalAlpha=.7;g2.setLineDash([2,4]);g2.beginPath();g2.moveTo(0,y+.5);g2.lineTo(vw,y+.5);g2.stroke();g2.setLineDash([]);g2.globalAlpha=1;g2.fillStyle=C.mut;g2.fillText('手動値',vw-44,y-2)}}
   g2.lineWidth=1;const P=a.pts;
-  if(a.interp==='smooth'&&P.length>1){g2.strokeStyle=C.mut;g2.globalAlpha=.45;g2.setLineDash([3,3]);g2.beginPath();P.forEach((p,i)=>{const x=p.t*BW-sx,y=yOfV(p.v);i?g2.lineTo(x,y):g2.moveTo(x,y)});g2.stroke();g2.setLineDash([]);g2.globalAlpha=1}
+  if(!lfo&&P.length>1&&P.some(p=>(p.i||a.interp)==='smooth')){g2.strokeStyle=C.mut;g2.globalAlpha=.45;g2.setLineDash([3,3]);g2.beginPath();P.forEach((p,i)=>{const x=p.t*BW-sx,y=yOfV(p.v);i?g2.lineTo(x,y):g2.moveTo(x,y)});g2.stroke();g2.setLineDash([]);g2.globalAlpha=1}
   g2.strokeStyle=a.color;g2.lineWidth=2.5;g2.beginPath();let f=true;for(let px=0;px<=Math.min(vw,a.len*BW-sx);px+=2){const v=autoVal(a,(px+sx)/BW),y=yOfV(v);if(f){g2.moveTo(px,y);f=false}else g2.lineTo(px,y)}g2.stroke();g2.lineWidth=1;
-  for(const p of P){const x=p.t*BW-sx,y=yOfV(p.v);if(x<-8||x>vw+8)continue;g2.beginPath();g2.arc(x,y,asel.has(p)?6:5,0,7);g2.fillStyle=asel.has(p)?C.fg:C.panel;g2.fill();g2.strokeStyle=a.color;g2.lineWidth=2;g2.stroke();g2.lineWidth=1}
-  if(asel.size===1){const p=[...asel][0];g2.fillStyle=C.fg;g2.font='bold 11px system-ui';g2.fillText(aLbl(a,p.v),Math.max(4,Math.min(vw-170,p.t*BW-sx+8)),Math.max(RULER+12,yOfV(p.v)-9))}
+  if(!lfo)for(const p of P){const x=p.t*BW-sx,y=yOfV(p.v);if(x<-8||x>vw+8)continue;g2.beginPath();g2.arc(x,y,asel.has(p)?6:5,0,7);g2.fillStyle=asel.has(p)?C.fg:C.panel;g2.fill();g2.strokeStyle=asel.has(p)?'#f5c542':a.color;g2.lineWidth=asel.has(p)?3:2;g2.stroke();g2.lineWidth=1;if(p.i){g2.fillStyle=a.color;g2.fillRect(x-2,y+8,4,4)}}
+  if(asel.size===1){const p=[...asel][0];g2.fillStyle=C.fg;g2.font='bold 11px system-ui';g2.fillText((EQ?fmtT(EQ.s+p.t)+' ':'')+'t='+p.t.toFixed(3)+'拍  '+aLbl(a,p.v),Math.max(4,Math.min(vw-300,p.t*BW-sx+8)),Math.max(RULER+12,yOfV(p.v)-9))}
+  else if(asel.size>1){g2.fillStyle=C.fg;g2.font='bold 11px system-ui';g2.fillText(asel.size+'点を選択中',vw-110,RULER+14)}
   if(adr&&adr.mode==='box'){const xa=Math.min(adr.x0,adr.x1)-sx,ya=Math.min(adr.y0,adr.y1),bw=Math.abs(adr.x1-adr.x0),bh=Math.abs(adr.y1-adr.y0);g2.globalAlpha=.15;g2.fillStyle=a.color;g2.fillRect(xa,ya,bw,bh);g2.globalAlpha=1;g2.strokeStyle=a.color;g2.setLineDash([4,3]);g2.strokeRect(xa+.5,ya+.5,bw,bh);g2.setLineDash([])}
+  if(adr&&adr.mode==='line'){g2.strokeStyle=a.color;g2.setLineDash([5,4]);g2.lineWidth=2;g2.beginPath();g2.moveTo(adr.t0*BW-sx,yOfV(adr.v0));g2.lineTo(adr.t1*BW-sx,yOfV(adr.v1));g2.stroke();g2.setLineDash([]);g2.lineWidth=1}
+  if(adr&&adr.mode==='free'){g2.strokeStyle=a.color;g2.lineWidth=2;g2.beginPath();adr.raw.forEach((p,i)=>i?g2.lineTo(p.x-sx,p.y):g2.moveTo(p.x-sx,p.y));g2.stroke();g2.lineWidth=1}
   if(EQ){const rel=playBeat-EQ.s;if(rel>=0&&rel<=EQ.l){const px=rel*BW-sx,v=autoVal(a,Math.min(rel,a.len));g2.fillStyle='#e5484d';g2.fillRect(px,RULER,2,vh-RULER);g2.beginPath();g2.arc(px+1,yOfV(v),4,0,7);g2.fill();g2.font='bold 10px system-ui';g2.fillText(aLbl(a,v),Math.min(vw-150,px+8),Math.max(RULER+12,yOfV(v)-8))}}
+  if(AM&&AM.y>RULER){const t=(AM.x+sx)/BW,v=vOfY(AM.y);g2.strokeStyle=C.mut;g2.globalAlpha=.5;g2.setLineDash([2,3]);g2.beginPath();g2.moveTo(AM.x+.5,RULER);g2.lineTo(AM.x+.5,vh);g2.moveTo(0,AM.y+.5);g2.lineTo(vw,AM.y+.5);g2.stroke();g2.setLineDash([]);g2.globalAlpha=1;
+    const txt=(EQ?fmtT(EQ.s+t)+' / ':'')+'クリップ内 '+t.toFixed(3)+'拍 / '+aLbl(a,clampV(v)),tw=g2.measureText(txt).width+12,bx=Math.min(vw-tw-4,AM.x+12),by=Math.min(vh-24,AM.y+14);g2.fillStyle='rgba(0,0,0,.75)';g2.fillRect(bx,by,tw,18);g2.fillStyle='#fff';g2.font='11px system-ui';g2.fillText(txt,bx+6,by+13)}
   g2.restore();
   g2.fillStyle=C.panel;g2.fillRect(0,0,vw,RULER);g2.strokeStyle=C.line;g2.beginPath();g2.moveTo(0,RULER-.5);g2.lineTo(vw,RULER-.5);g2.stroke();
   for(let bar=Math.max(0,Math.floor(sx/BW/4));bar<=Math.min(S.len/4,Math.ceil((sx+vw)/BW/4));bar++){const x=bar*4*BW-sx;g2.strokeStyle=C.bar;g2.lineWidth=2;g2.beginPath();g2.moveTo(x+.5,0);g2.lineTo(x+.5,RULER);g2.stroke();g2.lineWidth=1;g2.fillStyle=C.fg;g2.font='bold 11px system-ui';g2.fillText(String(bar+1),x+5,15);
     if(EQ&&BW*4>=60){g2.fillStyle=C.mut;g2.font='9px system-ui';g2.fillText('曲 '+fmtBarPos(EQ.s+bar*4),x+5,RULER-4)}}
-  if(EQ){const rel=playBeat-EQ.s;if(rel>=0&&rel<=EQ.l){g2.fillStyle='#e5484d';const px=rel*BW-sx;g2.beginPath();g2.moveTo(px-5,0);g2.lineTo(px+5,0);g2.lineTo(px,8);g2.fill()}}}
+  if(EQ){const rel=playBeat-EQ.s;if(rel>=0&&rel<=EQ.l){g2.fillStyle='#e5484d';const px=rel*BW-sx;g2.beginPath();g2.moveTo(px-5,0);g2.lineTo(px+5,0);g2.lineTo(px,8);g2.fill()}}
+  g2.fillStyle=C.mut;g2.font='10px system-ui';const rt=(d?'範囲 '+d.fmt(autoReal(a.target,a,0))+' 〜 '+d.fmt(autoReal(a.target,a,1)):'接続先なし')+'  |  '+(lfo?'LFO':'ツール: '+({sel:'選択',add:'追加',del:'削除',line:'直線',free:'自由描画'}[ATOOL]))+'  |  スナップ '+(G?(G>=1?G+'拍':'1/'+Math.round(1/G*100)/100+'拍'):'なし');g2.fillText(rt,Math.max(4,vw-g2.measureText(rt).width-8),RULER-4)}
 function updAbar(){const a=EA;if(!a)return;fillAkind();const d=a.target?autoDesc(a.target):null;
   $('ainfo').textContent=d?d.label:(a.target?'⚠ 接続先が見つかりません':'接続先なし');
   const set=(id,v)=>{const el=$(id);if(document.activeElement!==el)el.value=v};
   const sg=$('atg'),sig=$('akind').dataset.sig+'|'+a.target;if(sg.dataset.sig!==sig){sg.dataset.sig=sig;let h=$('akind').innerHTML;if(a.target&&![...$('akind').options].some(o=>o.value===a.target))h='<option value="'+a.target+'">⚠ (見つかりません) '+a.target+'</option>'+h;if(!a.target)h='<option value="">(未接続)</option>'+h;sg.innerHTML=h}
   if(document.activeElement!==sg)sg.value=a.target||'';
-  set('an',a.name);set('asm',a.smooth);set('arng',a.range);set('atm',a.tm);set('afb',a.fb);set('alen',a.len/4);set('aint',a.interp);set('aend',a.end);set('asg',GRID>0?GRID:0);$('asnOn').checked=AGON;
+  const L=a.lfo||{};
+  set('an',a.name);set('asm',a.smooth);set('arng',a.range);set('atm',a.tm);set('afb',a.fb);set('alen',a.len/4);set('aint',a.interp);set('aend',a.end);set('asg',AGRID>0?AGRID:0);$('asnOn').checked=AGON;$('aFollow').checked=AFOLLOW;
+  set('alsh',L.shape||'sine');set('almd',L.mode||'beat');set('alpd',L.period);set('alhz',L.hz);set('alam',L.amp);set('alof',L.off);set('alph',L.phase);
+  const lfo=a.type==='lfo';
   document.querySelectorAll('#abar .aeo').forEach(el=>el.style.display=d&&d.echo?'':'none');
   document.querySelectorAll('#abar .apt').forEach(el=>el.style.display=d&&d.semi?'':'none');
-  document.querySelectorAll('#abar .acv').forEach(el=>el.style.display=a.interp==='smooth'?'':'none')}
+  document.querySelectorAll('#abar .acv').forEach(el=>el.style.display=!lfo&&a.interp==='smooth'?'':'none');
+  document.querySelectorAll('#abar .alf').forEach(el=>el.style.display=lfo?'':'none');
+  document.querySelectorAll('#abar .anl').forEach(el=>el.style.display=lfo?'none':'');
+  document.querySelectorAll('#abar .alb').forEach(el=>el.style.display=lfo&&(L.mode||'beat')==='beat'?'':'none');
+  document.querySelectorAll('#abar .alz').forEach(el=>el.style.display=lfo&&L.mode==='hz'?'':'none');
+  document.querySelectorAll('#abar .atl').forEach(el=>el.classList.toggle('on',el.dataset.t===ATOOL));
+  $('atoolName').textContent=lfo?'LFOクリップ(波形は下の設定で編集)':TOOLN[ATOOL]}
+let AMQ=0;const aHover=()=>{if(AMQ)return;AMQ=1;requestAnimationFrame(()=>{AMQ=0;if(VIEW==='auto')draw()})};
+const aNear=(mx,my,sx)=>{let h=null,bd=121;for(const p of EA.pts){const dx=p.t*BW-sx-mx,dy=yOfV(p.v)-my,dd=dx*dx+dy*dy;if(dd<bd){bd=dd;h=p}}return h};
 cv.addEventListener('pointerdown',e=>{if(VIEW!=='auto'||!EA||e===OPENEV)return;const rc=cv.getBoundingClientRect();
   if(e.clientY-rc.top<RULER){if(EQ)seekTo(EQ.s+(e.clientX-rc.left+roll.scrollLeft)/BW);return}
-  const sx=roll.scrollLeft,mx=e.clientX-rc.left,my=e.clientY-rc.top;cv.setPointerCapture(e.pointerId);
-  let h=null,bd=121;for(const p of EA.pts){const dx=p.t*BW-sx-mx,dy=yOfV(p.v)-my,dd=dx*dx+dy*dy;if(dd<bd){bd=dd;h=p}}
-  const mod=e.shiftKey||e.ctrlKey||e.metaKey;
-  if(!h&&(MODE==='select'||mod)){adr={mode:'box',x0:mx+sx,y0:my,x1:mx+sx,y1:my,base:new Set(mod?asel:[])};boxA();draw();return}
-  let pushed=false;
-  if(h&&mod){if(asel.has(h)){asel.delete(h);draw();return}asel.add(h)}
-  else if(h&&!asel.has(h)){asel=new Set([h])}
-  else if(!h){pushUndo();pushed=true;h={t:snapT((mx+sx)/BW),v:clampV(vOfY(my))};EA.pts.push(h);sortPts();asel=new Set([h]);dirty()}
-  adr={mode:'move',before:snap(),pushed,moved:false,t0:h.t,v0:h.v,ox:(mx+sx)/BW-h.t,oy:vOfY(my)-h.v,snap:[...asel].map(p=>({p,t:p.t,v:p.v}))};draw()});
-cv.addEventListener('pointermove',e=>{if(VIEW!=='auto'||!adr)return;const rc=cv.getBoundingClientRect(),sx=roll.scrollLeft,mx=e.clientX-rc.left+sx,my=e.clientY-rc.top;
+  if(EA.type==='lfo'){$('st').textContent='LFOクリップは制御点を持ちません。上部のLFO設定(波形・周期・振幅・オフセット・位相)で編集します';return}
+  const sx=roll.scrollLeft,mx=e.clientX-rc.left,my=e.clientY-rc.top;cv.setPointerCapture(e.pointerId);const h=aNear(mx,my,sx),mod=e.shiftKey||e.ctrlKey||e.metaKey,tm=snapT((mx+sx)/BW),vm=clampV(vOfY(my));AM={x:mx,y:my};
+  if(ATOOL==='del'){adr={mode:'erase',pushed:false};if(h){pushUndo();adr.pushed=true;EA.pts=EA.pts.filter(p=>p!==h);asel.delete(h);dirty()}draw();return}
+  if(ATOOL==='line'){adr={mode:'line',t0:tm,v0:vm,t1:tm,v1:vm};draw();return}
+  if(ATOOL==='free'){adr={mode:'free',raw:[{x:mx+sx,y:my}]};draw();return}
+  if(!h&&(ATOOL==='sel'||mod)){adr={mode:'box',x0:mx+sx,y0:my,x1:mx+sx,y1:my,base:new Set(mod?asel:[])};boxA();draw();return}
+  let pushed=false,hh=h;
+  if(hh&&mod){if(asel.has(hh)){asel.delete(hh);draw();return}asel.add(hh)}
+  else if(hh&&!asel.has(hh)){asel=new Set([hh])}
+  else if(!hh){pushUndo();pushed=true;hh={t:tm,v:vm};EA.pts.push(hh);sortPts();asel=new Set([hh]);dirty()}
+  adr={mode:'move',before:snap(),pushed,moved:false,t0:hh.t,v0:hh.v,ox:(mx+sx)/BW-hh.t,oy:vOfY(my)-hh.v,snap:[...asel].map(p=>({p,t:p.t,v:p.v}))};draw()});
+cv.addEventListener('pointermove',e=>{if(VIEW!=='auto'||!EA)return;const rc=cv.getBoundingClientRect(),sx=roll.scrollLeft,mx=e.clientX-rc.left+sx,my=e.clientY-rc.top;AM={x:e.clientX-rc.left,y:my};
+  if(!adr){aHover();return}
   if(adr.mode==='box'){edgeScroll(e);adr.x1=mx;adr.y1=my;boxA();draw();return}
+  if(adr.mode==='line'){adr.t1=snapT(mx/BW);adr.v1=clampV(vOfY(my));draw();return}
+  if(adr.mode==='free'){const l=adr.raw[adr.raw.length-1];if(Math.hypot(l.x-mx,l.y-my)>=2){adr.raw.push({x:mx,y:my});draw()}return}
+  if(adr.mode==='erase'){const h=aNear(AM.x,my,sx);if(h){if(!adr.pushed){pushUndo();adr.pushed=true}EA.pts=EA.pts.filter(p=>p!==h);asel.delete(h);AC=null;autoResyncSoon();draw()}return}
   if(!adr.moved){adr.moved=true;if(!adr.pushed){undo.push(adr.before);if(undo.length>100)undo.shift();redo=[]}}edgeScroll(e);
   let dt=snapT(mx/BW-adr.ox)-adr.t0,dv=clampV(vOfY(my)-adr.oy)-adr.v0,mnT=1e9,mxT=-1e9,mnV=1e9,mxV=-1e9;
   for(const o of adr.snap){mnT=Math.min(mnT,o.t);mxT=Math.max(mxT,o.t);mnV=Math.min(mnV,o.v);mxV=Math.max(mxV,o.v)}
   dt=Math.max(-mnT,Math.min(EA.len-mxT,dt));dv=Math.max(-mnV,Math.min(1-mxV,dv));
-  for(const o of adr.snap){o.p.t=o.t+dt;o.p.v=o.v+dv}sortPts();draw()});
-const aUp=()=>{if(VIEW!=='auto'||!adr)return;const m=adr.mode==='move'&&(adr.moved||adr.pushed);adr=null;if(m)dirty();draw()};cv.addEventListener('pointerup',aUp);cv.addEventListener('pointercancel',aUp);
-cv.addEventListener('contextmenu',e=>{if(VIEW!=='auto'||!EA)return;e.preventDefault();const rc=cv.getBoundingClientRect(),sx=roll.scrollLeft;let h=null,bd=121;
-  for(const p of EA.pts){const dx=p.t*BW-sx-(e.clientX-rc.left),dy=yOfV(p.v)-(e.clientY-rc.top),dd=dx*dx+dy*dy;if(dd<bd){bd=dd;h=p}}
+  for(const o of adr.snap){o.p.t=o.t+dt;o.p.v=o.v+dv}sortPts();AC=null;autoResyncSoon();draw()});
+const aUp=()=>{if(VIEW!=='auto'||!adr)return;const m=adr.mode;
+  if(m==='line'&&Math.abs(adr.t1-adr.t0)+Math.abs(adr.v1-adr.v0)>1e-6){pushUndo();aReplaceRange(aLinePts(adr.t0,adr.v0,adr.t1,adr.v1))}
+  else if(m==='free'&&adr.raw.length>1){const n=aFreePts(adr.raw);if(n.length>1){pushUndo();aReplaceRange(n);$('st').textContent='自由描画: '+adr.raw.length+'サンプルを'+n.length+'個の制御点に間引きました'}}
+  else if(m==='move'&&(adr.moved||adr.pushed))dirty();else if(m==='erase'&&adr.pushed)dirty();
+  adr=null;draw()};cv.addEventListener('pointerup',aUp);cv.addEventListener('pointercancel',aUp);
+cv.addEventListener('pointerleave',()=>{if(VIEW==='auto'&&!adr){AM=null;aHover()}});
+cv.addEventListener('contextmenu',e=>{if(VIEW!=='auto'||!EA)return;e.preventDefault();const rc=cv.getBoundingClientRect(),h=aNear(e.clientX-rc.left,e.clientY-rc.top,roll.scrollLeft);
   if(h){const del=asel.has(h)?new Set(asel):new Set([h]);pushUndo();EA.pts=EA.pts.filter(p=>!del.has(p));asel=new Set();dirty();draw()}});
 roll.addEventListener('wheel',e=>{if(VIEW!=='auto')return;if(e.ctrlKey||e.metaKey){e.preventDefault();zoomH(zh*(e.deltaY<0?1.15:1/1.15));return}
   if(AVZ.hi-AVZ.lo<1-1e-9&&!e.shiftKey){e.preventDefault();const sp=AVZ.hi-AVZ.lo,dv=(e.deltaY>0?-1:1)*sp*.15,lo=aClamp(AVZ.lo+dv,0,1-sp);AVZ={lo,hi:lo+sp};draw()}},{passive:false});
 function aZoomV(k){const sp=AVZ.hi-AVZ.lo;let c=(AVZ.lo+AVZ.hi)/2;if(asel.size)c=[...asel].reduce((s,p)=>s+p.v,0)/asel.size;const ns=aClamp(sp*k,.04,1);let lo=aClamp(c-ns/2,0,1-ns);AVZ={lo,hi:lo+ns};draw()}
 $('avIn').onclick=()=>aZoomV(1/1.5);$('avOut').onclick=()=>aZoomV(1.5);$('avAll').onclick=()=>{AVZ={lo:0,hi:1};draw()};
 $('ahIn').onclick=()=>zoomH(zh*1.25);$('ahOut').onclick=()=>zoomH(zh/1.25);
+$('aFit').onclick=()=>{if(!EA)return;zoomH(Math.max(.33,Math.min(4,roll.clientWidth*.94/(EA.len*BW0))));roll.scrollLeft=0;draw()};
+$('aJp').onclick=()=>{if(!EQ)return;const px=(playBeat-EQ.s)*BW;roll.scrollLeft=Math.max(0,px-roll.clientWidth/2);draw()};
+$('aJs').onclick=()=>{if(!EA)return;const L=asel.size?[...asel]:EA.pts;if(!L.length)return;const t0=Math.min(...L.map(p=>p.t)),t1=Math.max(...L.map(p=>p.t)),v0=Math.min(...L.map(p=>p.v)),v1=Math.max(...L.map(p=>p.v));
+  roll.scrollLeft=Math.max(0,(t0+t1)/2*BW-roll.clientWidth/2);if(asel.size){const sp=aClamp((v1-v0)*1.6+.1,.1,1),c=(v0+v1)/2,lo=aClamp(c-sp/2,0,1-sp);AVZ={lo,hi:lo+sp}}draw()};
+$('aFollow').onchange=e=>{AFOLLOW=e.target.checked};
+document.querySelectorAll('#abar .atl').forEach(b=>b.onclick=()=>{ATOOL=b.dataset.t;asel=ATOOL==='sel'?asel:asel;updAbar();draw()});
 function delAPts(){if(!asel.size)return;pushUndo();EA.pts=EA.pts.filter(p=>!asel.has(p));asel=new Set();dirty();draw()}
-function aCopy(cut){if(!asel.size){$('st').textContent='制御点が選択されていません';return}const a=[...asel].sort((x,y)=>x.t-y.t),t0=a[0].t;ACLIP={pts:a.map(p=>({t:p.t-t0,v:p.v})),span:a[a.length-1].t-t0};
+function aCopy(cut){if(!asel.size){$('st').textContent='制御点が選択されていません';return}const a=[...asel].sort((x,y)=>x.t-y.t),t0=a[0].t;ACLIP={pts:a.map(p=>({t:p.t-t0,v:p.v,i:p.i})),span:a[a.length-1].t-t0};
   if(cut)delAPts();$('st').textContent=a.length+'点を'+(cut?'切り取り':'コピー')+'しました'}
 function aPaste(){if(!ACLIP){$('st').textContent='貼り付ける制御点がありません';return}const rel=EQ?playBeat-EQ.s:-1,at=snapT(rel>=0&&rel<=EA.len?rel:0);pushUndo();
-  const n=ACLIP.pts.filter(c=>at+c.t<=EA.len+1e-9).map(c=>({t:at+c.t,v:c.v}));EA.pts.push(...n);sortPts();asel=new Set(n);dirty();draw();$('st').textContent=n.length+'点を再生位置に貼り付けました'}
-function aDup(){if(!asel.size)return;const a=[...asel],t0=Math.min(...a.map(p=>p.t)),t1=Math.max(...a.map(p=>p.t)),off=Math.max(t1-t0,GRID||.25);
-  if(t1+off>EA.len){$('st').textContent='クリップの長さを超えるため複製できません(長さを延ばしてください)';return}pushUndo();const n=a.map(p=>({t:p.t+off,v:p.v}));EA.pts.push(...n);sortPts();asel=new Set(n);dirty();draw()}
+  const n=ACLIP.pts.filter(c=>at+c.t<=EA.len+1e-9).map(c=>({t:at+c.t,v:c.v,...(c.i?{i:c.i}:{})}));if(!n.length)return;aReplaceRange(n.slice().sort((x,y)=>x.t-y.t));draw();$('st').textContent=n.length+'点を再生位置に貼り付けました(範囲内の既存点は置き換え)'}
+function aDup(){if(!asel.size)return;const a=[...asel],t0=Math.min(...a.map(p=>p.t)),t1=Math.max(...a.map(p=>p.t)),off=Math.max(t1-t0,agrid()||.25);
+  if(t1+off>EA.len){$('st').textContent='クリップの長さを超えるため複製できません(長さを延ばしてください)';return}pushUndo();const n=a.map(p=>({t:p.t+off,v:p.v,...(p.i?{i:p.i}:{})}));EA.pts.push(...n);sortPts();asel=new Set(n);dirty();draw()}
 $('an').oninput=e=>{EA.name=e.target.value||'Automation';dirty();draw()};
-$('atg').onchange=e=>{const nt=e.target.value;if(nt===EA.target||!nt)return;pushUndo();const old=EA.target;const od=old?autoDesc(old):null,nd=autoDesc(nt,true);
-  for(const p of EA.pts){const r=autoReal(old,EA,p.v);p.v=nd?(nd.semi?aClamp(r/(2*(EA.range||12))+.5,0,1):aNorm(nd,r)):p.v} // 実値を保ったまま新しい範囲へ換算
-  EA.target=nt;EA.kind=/:pitch$/.test(nt)?'pitch':/:echo$/.test(nt)?'echo':'vol';AC=null;ADC=new Map();if(nd&&nd.disc)EA.interp='step',EA.mode='line';dirty();draw()};
+$('atg').onchange=e=>{const nt=e.target.value;if(nt===EA.target||!nt)return;pushUndo();const old=EA.target,nd=autoDesc(nt,true);
+  for(const p of EA.pts){const r=autoReal(old,EA,p.v);p.v=nd?(nd.semi?aClamp(r/(2*(EA.range||12))+.5,0,1):autoNormR(nd,r)):p.v} // 実値を保ったまま新しい範囲へ換算
+  if(EA.lfo&&nd){const o=autoDesc(old);if(o&&!o.semi&&!nd.semi){const r0=autoReal(old,EA,EA.lfo.off);EA.lfo.off=autoNormR(nd,r0)}}
+  EA.target=nt;EA.kind=/:pitch$/.test(nt)?'pitch':/:echo$/.test(nt)?'echo':'vol';AC=null;ADC=new Map();if(nd&&nd.disc&&EA.type!=='lfo')EA.interp='step',EA.mode='line';dirty();draw()};
+$('atUn').onclick=()=>{if(!EA||!EA.target)return;pushUndo();EA.target='';AC=null;ADC=new Map();dirty();draw();$('st').textContent='接続を解除しました(クリップは残り、接続先を選び直せます)。再生中はパラメータが手動値へ戻ります'};
 $('aint').onchange=e=>{pushUndo();EA.interp=e.target.value;EA.mode=EA.interp==='smooth'?'curve':'line';dirty();draw()};
+$('aseg').onchange=e=>{if(!asel.size){$('st').textContent='区間の補間を変える制御点を選択してください(その点から次の点までの区間に適用)';e.target.value='';return}pushUndo();for(const p of asel){if(e.target.value)p.i=e.target.value;else delete p.i}e.target.value='';dirty();draw()};
 $('aend').onchange=e=>{pushUndo();EA.end=e.target.value==='reset'?'reset':'hold';dirty();draw()};
-$('asg').onchange=e=>{GRID=+e.target.value;if(GRID>0){try{localStorage.setItem('daw-grid',String(GRID));$('grid').value=String(GRID)}catch(_){}}draw()};
+$('asg').onchange=e=>{AGRID=+e.target.value;try{localStorage.setItem('daw-agrid',String(AGRID))}catch(_){}draw()};
 $('asm').oninput=e=>{EA.smooth=+e.target.value;dirty();draw()};
 $('arng').onchange=e=>{pushUndo();EA.range=Math.max(1,Math.min(48,Math.round(+e.target.value)||12));dirty();draw()};
 $('atm').onchange=e=>{pushUndo();EA.tm=Math.max(.02,Math.min(1,+e.target.value||.3));dirty();draw()};
 $('afb').onchange=e=>{pushUndo();EA.fb=Math.max(0,Math.min(.85,+e.target.value||0));dirty();draw()};
 $('alen').onchange=e=>{const n=Math.max(1,Math.min(64,Math.round(+e.target.value)||1));pushUndo();EA.len=n*4;for(const p of EA.pts)p.t=Math.min(p.t,EA.len);if(EQ)EQ.l=Math.max(.25,Math.min(MAXBARS*4-EQ.s,EA.len));fitSong();dirty();draw()};
-$('asnOn').onchange=e=>{AGON=e.target.checked};
+$('asnOn').onchange=e=>{AGON=e.target.checked;draw()};
+/* LFO設定 */
+const lfoSet=(k,v)=>{if(!EA||EA.type!=='lfo')return;pushUndo();EA.lfo[k]=v;fixLfo(EA);AC=null;dirty();draw()};
+$('alsh').onchange=e=>lfoSet('shape',e.target.value);$('almd').onchange=e=>{lfoSet('mode',e.target.value);updAbar()};
+$('alpd').onchange=e=>lfoSet('period',+e.target.value);$('alhz').onchange=e=>lfoSet('hz',+e.target.value);
+$('alam').oninput=e=>{if(EA&&EA.lfo){EA.lfo.amp=+e.target.value;AC=null;dirty();draw()}};$('alof').oninput=e=>{if(EA&&EA.lfo){EA.lfo.off=+e.target.value;AC=null;dirty();draw()}};
+$('alph').oninput=e=>{if(EA&&EA.lfo){EA.lfo.phase=+e.target.value;AC=null;dirty();draw()}};
+['alam','alof','alph'].forEach(id=>$(id).addEventListener('pointerdown',()=>pushUndo()));
+const _fpo=followPlayhead;followPlayhead=function(){if(VIEW==='auto'){if(AFOLLOW&&EQ){const px=(playBeat-EQ.s)*BW;if(px<roll.scrollLeft||px>roll.scrollLeft+roll.clientWidth-24)roll.scrollLeft=Math.max(0,px-60)}return}_fpo()};
+addEventListener('keydown',e=>{if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)||e.key!=='Escape')return;if(VIEW==='auto'){asel=new Set();adr=null;draw()}else if(VIEW==='song'){selOne(null);syncSongBar();draw()}});
 const _d3=delSel;delSel=function(){if(VIEW==='auto'){delAPts();return}if(VIEW==='song'&&selA){delAblk();return}_d3()};
 const _u3=dupSel;dupSel=function(){if(VIEW==='auto'){aDup();return}if(VIEW==='song'&&selA){dupAblk(false);return}_u3()};
-const _ps=pasteSel;pasteSel=function(){if(VIEW==='auto'){aPaste();return}_ps()};
-const _sa=selectAll;selectAll=function(){if(VIEW==='auto'){asel=new Set(EA.pts);draw();return}_sa()};
-const _cs=copySel;copySel=function(cut){if(VIEW==='auto'){aCopy(cut);return}_cs(cut)};
+const _ps=pasteSel;pasteSel=function(){if(VIEW==='auto'){aPaste();return}if(VIEW==='song'&&selA&&ACBUF){aClipPaste();return}_ps()};
+const _sa=selectAll;selectAll=function(){if(VIEW==='auto'){asel=new Set(EA.pts);draw();return}if(VIEW==='song'&&selA){selAs=new Set(S.aplace);draw();return}_sa()};
+const _cs=copySel;copySel=function(cut){if(VIEW==='auto'){aCopy(cut);return}if(VIEW==='song'&&selA){aClipCopy(cut);return}_cs(cut)};
 $('del').onclick=delSel;$('dup').onclick=dupSel;$('pst').onclick=pasteSel;$('sall').onclick=selectAll;
 /* ---------- マスターボリューム(オートメーション対応) ---------- */
 markAuto($('mvol'),'master:vol');
 $('mvol').oninput=e=>{S.master=+e.target.value;if(master&&!AUTOLIVE.has('master:vol'))master.gain.value=S.master;dirty()};
-function syncMasterUI(){$('mvol').value=S.master==null?.8:S.master;if(master&&!AUTOLIVE.has('master:vol'))master.gain.value=S.master==null?.8:S.master;refreshAutoMarks()}
+let ORPH=0;function syncMasterUI(){const o=S.autos.filter(a=>a.target&&!autoDesc(a.target)).length;if(o&&o!==ORPH)$('st').textContent='⚠ 接続先が見つからないオートメーションクリップが'+o+'個あります(接続先のトラック/エフェクトが削除された可能性)。エディターで接続先を選び直すか削除してください';ORPH=o;$('mvol').value=S.master==null?.8:S.master;if(master&&!AUTOLIVE.has('master:vol'))master.gain.value=S.master==null?.8:S.master;refreshAutoMarks()}
 const _rtm=renderTracks;renderTracks=function(){_rtm();syncMasterUI()};
 /* ---------- 自作エフェクト制作スタジオ ---------- */
 // [min,max,既定,step,表示名,変調スケール(LFO/制御の深さ1での振れ幅。無ければ変調不可)]
@@ -2025,7 +2097,7 @@ if(__bgmChannel)__bgmChannel.addEventListener('message',e=>{
   try{
     __bgmApplyingShared=true;S=JSON.parse(m.data);normS();if(!S.projectName)S.projectName='BGM';
     sel=Math.max(0,Math.min(sel,S.tracks.length-1));selNote=null;selSet.clear();
-    EP=S.patterns.find(p=>p.id===S.edit)||S.patterns[0]||null;bufObj=null;NC=null;AC=null;
+    EP=S.patterns.find(p=>p.id===S.edit)||S.patterns[0]||null;bufObj=null;NC=null;AC=null;autoResyncSoon();
     $('bpm').value=S.bpm;updateTabTitle();renderTracks();draw();
   }catch(err){console.warn('Shared project sync failed',err)}finally{__bgmApplyingShared=false}
 });
