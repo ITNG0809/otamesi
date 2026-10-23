@@ -11,6 +11,36 @@ const fresh=()=>{const P={id:uid(),name:'Pattern 1',color:TCOL[0],len:16,notes:[
 S=fresh();
 
 /* ---------- audio ---------- */
+/* Live pitch automation: keep active voices connected to the current automation curve,
+   so editing a curve while playback is running also affects notes that are already sounding. */
+const LIVEPITCH=new Set();
+function trackLivePitch(src,t,when,dur){
+  if(!src||!src.detune||VB==null)return;
+  const rec={src,t,par:src.detune,startTime:when,endTime:when+Math.max(.05,dur),startBeat:VB,
+    pat:PA&&PA.p||null,localBeat:PA&&PA.p?PA.b:0};
+  LIVEPITCH.add(rec);
+  src.onended=()=>LIVEPITCH.delete(rec);
+}
+function updateLivePitch(){
+  if(!playing||!ctx||!LIVEPITCH.size)return;
+  const now=ctx.currentTime;
+  for(const r of [...LIVEPITCH]){
+    if(now>=r.endTime+.05){LIVEPITCH.delete(r);continue}
+    if(now<r.startTime)continue;
+    const beat=r.startBeat+(now-r.startTime)/spb();
+    let cents=0;
+    if(r.pat){
+      cents=patAutoPitch(r.pat,r.localBeat+(now-r.startTime)/spb());
+    }else{
+      const v=evalPid('trk:'+r.t.id+':pitch',beat);
+      cents=v==null?0:v*100;
+    }
+    try{
+      r.par.cancelScheduledValues(now);
+      r.par.setTargetAtTime(Math.max(-4800,Math.min(4800,cents)),now,.012);
+    }catch(_){}
+  }
+}
 function initAudio(){
   if(ctx){if(ctx.state!=='running')ctx.resume();return}
   ctx=new (window.AudioContext||window.webkitAudioContext)();
@@ -20,7 +50,7 @@ function initAudio(){
 function voice(t,p,v,when,dur){PC=(VB==null)?null:pitchCurve(t,VB,dur/spb());if(PA&&PA.p){const av=patAutoVal(PA.p,PA.b,'vol');v=Math.max(0,Math.min(127,v*av));const ev=patAutoVal(PA.p,PA.b,'echo');try{const ch=getCh(t);ch.eg.gain.setValueAtTime(Math.max(0,Math.min(1,ev)),when)}catch(_){}}if(t.sf&&sfRes(t))sfVoice(t,p,v,when,dur);else synthVoice(t,p,v,when,dur);PC=null;PA=null}
 function synthVoice(t,p,v,when,dur){
   const o=ctx.createOscillator(),f=ctx.createBiquadFilter(),g=ctx.createGain();
-  o.type=t.wave;o.frequency.value=440*Math.pow(2,(p-69)/12);if(PC)applyDet(o.detune,when,PC);
+  o.type=t.wave;o.frequency.value=440*Math.pow(2,(p-69)/12);if(PC)applyDet(o.detune,when,PC);trackLivePitch(o,t,when,dur);
   f.type='lowpass';f.frequency.value=t.cut;
   const pk=(v/127)*.35,A=.01,R=.12,end=when+Math.max(dur,.05);
   g.gain.setValueAtTime(0,when);g.gain.linearRampToValueAtTime(pk,when+A);
@@ -31,6 +61,7 @@ const anySolo=()=>S.tracks.some(t=>t.solo)||AT().some(t=>t.solo);
 const audible=t=>!t.mute&&(!anySolo()||t.solo);
 const spb=()=>60/S.bpm;
 function schedule(){
+  updateLivePitch();
   const ahead=ctx.currentTime+.15;
   while(nextTime<ahead){
     const b0=nextBeat, end=blockPlayback?blockPlayback.end:S.len;
@@ -55,7 +86,7 @@ function play(){
   timer=setInterval(schedule,25);schedule();setPlayUI(true);requestAnimationFrame(frame);
 }
 let startRef={t:0,b:0};
-function pause(){playing=false;blockPlayback=null;const bb=$('blockPlay');if(bb){bb.classList.remove('on');bb.innerHTML=ico('play');bb.setAttribute('aria-label','ブロック内を再生');bb.dataset.tip='選択中のソングブロックだけ再生'}clearInterval(timer);ASRC.forEach(x=>{try{x.stop()}catch(e){}});ASRC.clear();resetAuto();setPlayUI(false)}
+function pause(){playing=false;blockPlayback=null;const bb=$('blockPlay');if(bb){bb.classList.remove('on');bb.innerHTML=ico('play');bb.setAttribute('aria-label','ブロック内を再生');bb.dataset.tip='選択中のソングブロックだけ再生'}clearInterval(timer);ASRC.forEach(x=>{try{x.stop()}catch(e){}});ASRC.clear();LIVEPITCH.clear();resetAuto();setPlayUI(false)}
 let prevPx=0;
 function followPlayhead(){const px=playBeat*BW,v=x=>x>=roll.scrollLeft&&x<=roll.scrollLeft+roll.clientWidth-24;if(v(prevPx)&&!v(px))roll.scrollLeft=Math.max(0,px-60);prevPx=px}
 function stop(rewind){pause();if(rewind){playBeat=0;roll.scrollLeft=0}draw();upPos()}
@@ -471,7 +502,7 @@ function sfVoice(t,p,v,when,dur){
   for(const z of SFO.sf.zones(pr)){if(p<z.klo||p>z.khi||v<z.vlo||v>z.vhi)continue;
     const ab=SFO.sf.sBuf(z.si);if(!ab)continue;const s=SFO.sf.samples[z.si];
     const src=ctx.createBufferSource();src.buffer=ab;
-    const rate=Math.pow(2,((p-z.root)*100+z.tune)/1200);src.playbackRate.value=rate;if(PC)applyDet(src.detune,when,PC);
+    const rate=Math.pow(2,((p-z.root)*100+z.tune)/1200);src.playbackRate.value=rate;if(PC)applyDet(src.detune,when,PC);trackLivePitch(src,t,when,dur);
     if(z.loop&&s.el>s.sl+8){src.loop=true;src.loopStart=(s.sl-s.start)/ab.sampleRate;src.loopEnd=(s.el-s.start)/ab.sampleRate}
     const g=ctx.createGain(),pn=ctx.createStereoPanner();pn.pan.value=Math.max(-1,Math.min(1,z.pan/500));
     const peak=Math.pow(v/127,2)*Math.pow(10,-z.att/200)*.6,lvl=Math.pow(10,-z.sus/200);
