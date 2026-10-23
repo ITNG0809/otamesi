@@ -26,7 +26,7 @@ canvas{display:block;touch-action:none;-webkit-touch-callout:none;-webkit-user-s
 .fx label{display:flex;gap:6px;align-items:center;justify-content:space-between}.fx input[type=range]{width:90px;min-height:20px}
 .fx button{padding:2px 8px;min-height:26px}.fx button.on{background:var(--acc);color:#fff;border-color:var(--acc)}.fx .fv{font-size:11px;color:var(--mut);min-width:46px;text-align:right}
 @media(pointer:coarse){.fx input[type=range]{width:140px;min-height:34px}.fx button{min-height:38px;min-width:38px}.fx{min-width:190px}}.fx .h{display:flex;gap:4px;align-items:center}.fx .h b{flex:1}
-#rc{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}#rt{flex:1;display:flex;min-height:0}
+#rc{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}#rt{flex:1;display:flex;min-height:0}
 #vlw{height:96px;flex-shrink:0;border-top:1px solid var(--line);padding-right:30px;background:var(--panel)}#vl{cursor:ns-resize;touch-action:none}
 #alw{flex-shrink:0;overflow-y:auto;overflow-x:hidden;border-top:1px solid var(--line);padding-right:30px;background:var(--panel);display:none}#al{display:block;touch-action:none}
 #hs{position:relative;height:32px;background:var(--panel);border-top:1px solid var(--line);flex-shrink:0;touch-action:none;user-select:none;-webkit-user-select:none}

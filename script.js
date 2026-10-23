@@ -1143,7 +1143,7 @@ function autoVal(a,x){const P=a.pts,n=P.length;if(!n)return aDef(a);if(x<=P[0].t
   const k=a.smooth==null?1:a.smooth,m0=tn(i)*k,m1=tn(i+1)*k,u2=u*u,u3=u2*u;
   return Math.max(0,Math.min(1,(2*u3-3*u2+1)*p0.v+(u3-2*u2+u)*dx*m0+(-2*u3+3*u2)*p1.v+(u3-u2)*dx*m1))}
 function autoIdx(){if(AC)return AC;AC=new Map();ADC=new Map();const A=new Map(S.autos.map(a=>[a.id,a])),R=new Set(S.autotr.map(a=>a.id));
-  for(const q of S.aplace){const a=A.get(q.aid);if(!a||!R.has(q.tr)||!a.target)continue;if(!AC.has(a.target))AC.set(a.target,[]);AC.get(a.target).push({s:q.s,l:q.l,a,q})}return AC}
+  for(const q of S.aplace){const a=A.get(q.aid);if(!a||!R.has(q.tr)||!a.target||!Array.isArray(a.pts))continue;if(!AC.has(a.target))AC.set(a.target,[]);AC.get(a.target).push({s:q.s,l:q.l,a,q})}return AC}
 /* 同一パラメータに複数クリップがある場合の規則:
    1) 位置 b を含むクリップが複数 → 開始位置が最も遅いクリップが優先(同じ開始なら配置順で後のもの)
    2) どのクリップにも含まれない → 直前に終わったクリップの終端値を保持(クリップの end==='reset' なら手動値へ戻る)
@@ -1154,18 +1154,18 @@ function pickClip(pid,b){const L=autoIdx().get(pid);if(!L)return null;let cov=nu
 function evalPid(pid,b){const k=pickClip(pid,b);if(!k)return null;const a=k.e.a;return autoReal(pid,a,autoVal(a,Math.min(k.rel,a.len)))}
 /* ---- 再生: AudioParamへ(サンプル精度) ---- */
 function autoBreaks(L,b0,b1){const B=[b0];for(let k=1;k<4;k++)B.push(b0+(b1-b0)*k/4);
-  for(const e of L){const xs=[e.s,e.s+e.l,e.s+e.a.len];for(const p of e.a.pts)xs.push(e.s+p.t);for(const x of xs)if(x>b0+1e-7&&x<b1-1e-7)B.push(x)}
+  for(const e of (Array.isArray(L)?L:[])){const a=e&&e.a;if(!e||!a||!Number.isFinite(+e.s)||!Number.isFinite(+e.l))continue;const xs=[e.s,e.s+e.l];if(Number.isFinite(+a.len))xs.push(e.s+ +a.len);for(const p of (Array.isArray(a.pts)?a.pts:[]))if(p&&Number.isFinite(+p.t))xs.push(e.s+ +p.t);for(const x of xs)if(Number.isFinite(x)&&x>b0+1e-7&&x<b1-1e-7)B.push(x)}
   B.push(b1);B.sort((x,y)=>x-y);const o=[];for(const x of B)if(!o.length||x-o[o.length-1]>1e-7)o.push(x);return o}
 function schedAuto(b0,when,sp){const idx=autoIdx(),b1=b0+SNAP,T=b=>when+(b-b0)*sp;
   for(const pid of [...AUTOLIVE])if(!idx.has(pid)){AUTOLIVE.delete(pid);const d=autoDesc(pid),p=d&&d.ap&&d.ap();if(p){p.cancelScheduledValues(when);p.setValueAtTime(d.man(),when)}}
-  for(const[pid,L]of idx){const d=autoDesc(pid);if(!d||!d.ap)continue;const par=d.ap();if(!par)continue;AUTOLIVE.add(pid);
+  for(const[pid,L]of idx){if(!Array.isArray(L)||!L.length)continue;const d=autoDesc(pid);if(!d||!d.ap)continue;const par=d.ap();if(!par)continue;AUTOLIVE.add(pid);
     const val=(b,left)=>{const v=evalPid(pid,left?b-1e-7:b);return aClamp(v==null?d.man():v,d.min,d.max)},B=autoBreaks(L,b0,b1);
     par.setValueAtTime(val(B[0]),T(B[0]));
     for(let i=1;i<B.length;i++){par.linearRampToValueAtTime(val(B[i],true),T(B[i]));par.setValueAtTime(val(B[i]),T(B[i]))}
-    if(d.echo){const k=pickClip(pid,b0);if(k)getCh(d.echo).ec.h({mix:1,time:aClamp(k.e.a.tm,.02,1),fb:aClamp(k.e.a.fb,0,.85)})}}}
+    if(d.echo){const k=pickClip(pid,b0),a=k&&k.e&&k.e.a;if(a)getCh(d.echo).ec.h({mix:1,time:aClamp(a.tm??.25,.02,1),fb:aClamp(a.fb??.25,0,.85)})}}}
 /* ---- 再生: エフェクトのパラメータ(コントロールレート) ---- */
 function applyFxAuto(b){const idx=autoIdx(),by=new Map();
-  for(const pid of idx.keys()){if(pid[0]!=='f')continue;const d=autoDesc(pid);if(!d||!d.fx)continue;let g=by.get(d.fx.e);if(!g)by.set(d.fx.e,g={o:{},on:null});const v=evalPid(pid,b);
+  for(const pid of idx.keys()){if(typeof pid!=='string'||pid[0]!=='f')continue;const d=autoDesc(pid);if(!d||!d.fx)continue;let g=by.get(d.fx.e);if(!g)by.set(d.fx.e,g={o:{},on:null});const v=evalPid(pid,b);
     if(d.fx.name==='on')g.on=v==null?d.fx.e.on!==false:v>=.5;else if(v!=null)g.o[d.fx.name]=v}
   for(const[e,g]of by){FXLIVE.add(e);const n=fxNode(e);n.h(Object.assign(defP(e.type),e.p,g.o));if(g.on!=null)n.bp(!g.on)}
   for(const e of [...FXLIVE])if(!by.has(e)){FXLIVE.delete(e);const n=fxNode(e);n.h(Object.assign(defP(e.type),e.p));n.bp(e.on===false)}}
