@@ -1018,7 +1018,7 @@ function drawSong(){
   for(const q of S.place){const p=P.get(q.pid);if(!p)continue;const x=q.s*BW,w=qpx(q),rw=q.l*BW,y=q.ti*SRH+3,h=SRH-6;if(x>sx+vw||x+Math.max(w,rw)<sx)continue;
     // LMMS風パターンブロック：軽いグラデーション、上端ハイライト、暗い外枠。
     g2.globalAlpha=.96;
-    const patGrad=g2.createLinearGradient(0,y,0,y+h);patGrad.addColorStop(0,p.color);patGrad.addColorStop(1,'#202328');
+    const patGrad=g2.createLinearGradient(0,y,0,y+h);patGrad.addColorStop(0,p.color);patGrad.addColorStop(1,'#1b1f22');
     g2.fillStyle=patGrad;g2.fillRect(x,y,w,h);g2.globalAlpha=1;
     g2.fillStyle=p.color;g2.globalAlpha=.88;g2.fillRect(x+1,y+1,Math.max(0,w-2),Math.max(1,Math.min(4,h-2)));g2.globalAlpha=1;
     g2.save();g2.beginPath();g2.rect(x,y,w,h);g2.clip();
@@ -1039,7 +1039,7 @@ function drawSong(){
   g2.fillStyle=C.panel;g2.fillRect(0,0,vw,RULER);g2.strokeStyle=C.line;g2.beginPath();g2.moveTo(0,RULER-.5);g2.lineTo(vw,RULER-.5);g2.stroke();
   for(let bar=b0;bar<=b1;bar++){const x=bar*4*BW-sx;g2.strokeStyle=C.bar;g2.lineWidth=2;g2.beginPath();g2.moveTo(x+.5,0);g2.lineTo(x+.5,RULER);g2.stroke();g2.lineWidth=1;if(bar<nb){g2.fillStyle=C.fg;g2.font='bold 11px system-ui';g2.fillText(String(bar+1),x+5,15)}}
   const px=playBeat*BW-sx;if(px>=0&&px<=vw){g2.fillStyle='#e5484d';g2.beginPath();g2.moveTo(px-5,0);g2.lineTo(px+5,0);g2.lineTo(px,8);g2.fill()}
-  S.tracks.forEach((t,i)=>{const y=i*SRH+RULER-sy;if(y+SRH<RULER||y>vh)return;g2.fillStyle=C.panel;g2.globalAlpha=.98;g2.fillRect(0,y+3,112,SRH-6);g2.globalAlpha=1;g2.fillStyle=t.color||'#8fbd43';g2.fillRect(0,y+3,4,SRH-6);
+  S.tracks.forEach((t,i)=>{const y=i*SRH+RULER-sy;if(y+SRH<RULER||y>vh)return;g2.fillStyle=C.panel;g2.globalAlpha=.98;g2.fillRect(0,y+3,112,SRH-6);g2.globalAlpha=1;g2.fillStyle=t.color||'#17793b';g2.fillRect(0,y+3,4,SRH-6);
     /* LMMS風のピンクSF2プラグインタイル */
     const ix=9,iy=y+Math.max(5,(SRH-22)/2);g2.fillStyle='#d96cb7';g2.fillRect(ix,iy,27,22);g2.strokeStyle='#f4b7e3';g2.lineWidth=1;g2.strokeRect(ix+.5,iy+.5,26,21);g2.fillStyle='#fff';g2.font='bold 9px system-ui';g2.textAlign='center';g2.fillText('SF2',ix+13.5,iy+14);g2.textAlign='left';
     g2.save();g2.beginPath();g2.rect(41,y,67,SRH);g2.clip();g2.fillStyle=C.fg;g2.font='bold 11px system-ui';g2.fillText(fitText(g2,t.name,62),42,y+SRH/2+4);g2.restore()});
@@ -1256,7 +1256,7 @@ function openAuto(q){const a=S.autos.find(x=>x.id===q.aid);if(!a)return;if(windo
   if(VIEW==='auto'){roll.scrollLeft=0;draw()}else{setView('auto');roll.scrollLeft=0;draw()}}
 function drawAutoBlocks(g2,C,sx,vw){const P0=S.tracks.length;
   for(const q of S.aplace){const a=S.autos.find(x=>x.id===q.aid),ri=rowIdx(q);if(!a||ri<0)continue;const x=q.s*BW,w=Math.max(3,q.l*BW),y=(P0+ri)*SRH+3,h=SRH-6;if(x>sx+vw||x+w<sx)continue;
-    const ok=!a.target||!!autoDesc(a.target),sl=selAs.has(q);g2.globalAlpha=.9;g2.fillStyle='#262a30';g2.fillRect(x,y,w,h);g2.globalAlpha=sl?.4:.28;g2.fillStyle=a.color;g2.fillRect(x,y,w,h);g2.globalAlpha=1;
+    const ok=!a.target||!!autoDesc(a.target),sl=selAs.has(q);g2.globalAlpha=.9;g2.fillStyle='#262b30';g2.fillRect(x,y,w,h);g2.globalAlpha=sl?.4:.28;g2.fillStyle=a.color;g2.fillRect(x,y,w,h);g2.globalAlpha=1;
     g2.save();g2.beginPath();g2.rect(x,y,w,h);g2.clip();g2.strokeStyle=a.color;g2.lineWidth=1.5;g2.beginPath();let f=true;const x0=Math.max(x,sx),x1=Math.min(x+w,sx+vw);
     for(let px=x0;px<=x1+2;px+=2){const v=autoVal(a,Math.min(a.len,(px-x)/BW)),yy=y+h-2-v*(h-4);if(f){g2.moveTo(px,yy);f=false}else g2.lineTo(px,yy)}g2.stroke();
     if(q.l>a.len+1e-9){g2.fillStyle='rgba(0,0,0,.18)';g2.fillRect(x+a.len*BW,y,w-a.len*BW,h)}
