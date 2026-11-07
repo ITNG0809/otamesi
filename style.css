@@ -464,3 +464,31 @@ body.automation-embed #autoEmpty .ae-l button{font-size:12px}
 :root[data-lmms="1"] #tip.show{background:#262b30;border-color:#3b424a;color:#d1d8e4}
 .atl.on{background:#17793b!important;color:#fff!important;border-color:#0d5a28!important}
 body.automation-embed #aPlay.on{background:#17793b;color:#fff}
+
+/* ===== LMMS 1.2.2 オートメーションエディター外観(オートメーション専用iframeのみ) =====
+   ツールバー #343843 系 / グラフ背景 #222423 / 塗り・点は紫。BGM-notpc独自の緑テーマは使用しない */
+body.automation-embed{background:#262b2f!important;color:#d1d8e4}
+body.automation-embed #abar{background:linear-gradient(#3c404c,#2f333d)!important;border-bottom:1px solid #15171c!important;color:#d1d8e4!important;gap:4px 8px!important}
+body.automation-embed #abar>span,body.automation-embed #abar>label,body.automation-embed #abar>b,body.automation-embed #abar span{color:#d1d8e4!important}
+body.automation-embed #abar button{min-width:32px;min-height:32px;padding:2px 8px;color:#eef1f6;background:linear-gradient(#4b515d,#383d48);border:1px solid #1a1d23;border-radius:3px;box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}
+body.automation-embed #abar button:hover{background:linear-gradient(#565d6a,#414753)}
+body.automation-embed #abar button.on,body.automation-embed #abar .atl.on,body.automation-embed #abar .ai.on,body.automation-embed #aPlay.on{background:linear-gradient(#1b1e25,#2a2e38)!important;border-color:#0c0e12!important;color:#fff!important;box-shadow:inset 0 2px 4px rgba(0,0,0,.6)!important}
+body.automation-embed #abar .atl,body.automation-embed #abar .ai{padding:0;width:34px;display:inline-flex;align-items:center;justify-content:center}
+body.automation-embed #atools,body.automation-embed #aiBtns{display:inline-flex;gap:2px}
+body.automation-embed #atools[style*="none"],body.automation-embed #aiBtns[style*="none"]{display:none!important}
+body.automation-embed #aint{display:none!important}
+body.automation-embed #abar select,body.automation-embed #abar input:not([type=range]):not([type=checkbox]){background:#232831;color:#d1d8e4;border:1px solid #14171a;border-radius:3px}
+body.automation-embed #abar .sep{background:#15171c}
+body.automation-embed #asm{display:none!important}
+body.automation-embed #abar .tn-k{display:inline-flex;align-items:center;gap:4px;cursor:ns-resize;touch-action:none;user-select:none;border-radius:50%;outline:none}
+body.automation-embed #abar .tn-k:focus-visible{box-shadow:0 0 0 2px #8f74f2}
+body.automation-embed #abar .tn-k b{font-size:11px;font-weight:600;min-width:2.6em;color:#d1d8e4}
+body.automation-embed #abar .tn-k .tn-bg{fill:#2a2e37;stroke:#14171a;stroke-width:1}
+body.automation-embed #abar .tn-k .tn-tr{fill:none;stroke:#14171a;stroke-width:3;stroke-linecap:round}
+body.automation-embed #abar .tn-k .tn-va{fill:none;stroke:#2fd18a;stroke-width:3;stroke-linecap:round}
+body.automation-embed #abar .tn-k .tn-pt{stroke:#f1f4f8;stroke-width:2;stroke-linecap:round}
+body.automation-embed #abar .tn-k.off{opacity:.4;cursor:not-allowed}
+body.automation-embed #abar .tn-k.off .tn-va{stroke:#6b7480}
+body.automation-embed #roll{background:#222423!important;scrollbar-color:#3a444d #1d1d25}
+body.automation-embed #roll::-webkit-scrollbar{height:12px;width:12px;background:#1d1d25}
+body.automation-embed #roll::-webkit-scrollbar-thumb{background:#3a444d;border-radius:6px;border:2px solid #1d1d25}
