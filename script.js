@@ -5,6 +5,10 @@ let S,sel=0,selNote=null,undo=[],redo=[],lastDur=1,playing=false,playBeat=0,loop
 let PA=null,PAEdit=false,PAKind='vol',PADrag=false;
 let ctx=null,master=null,nextBeat=0,nextTime=0,startT=0,timer=null;
 const $=id=>document.getElementById(id);
+/* ---- オートメーション専用iframe(autoEmbed=1)との連携 ---- */
+const EMBED_AUTO=new URLSearchParams(location.search).get('autoEmbed')==='1';
+const AUTO_NS='bgm-auto',AUTO_OPEN=location.protocol==='file:'||location.origin==='null'; // file://では送信先originが不透明("null")になるため '*' + source検証
+const autoPostParent=(type,extra)=>{try{if(window.parent&&window.parent!==window)window.parent.postMessage(Object.assign({ns:AUTO_NS,v:1,type},extra||{}),AUTO_OPEN?'*':location.origin)}catch(_){}};
 const TCOL=['#2f6fed','#e5484d','#2da44e','#d4a017','#8957e5','#0aa5a5','#e0702d','#d6409f'];
 const newTrack=(i)=>({name:'Track '+(i+1),wave:'sawtooth',vol:.7,mute:false,solo:false,cut:6000,sf:null,pan:0,fx:[],color:TCOL[i%TCOL.length],id:uid(),notes:[]});
 const fresh=()=>{const P={id:uid(),name:'Pattern 1',color:TCOL[0],len:16,notes:[]};return{v:1,projectName:'BGM',bpm:120,len:LEN,tracks:[newTrack(0)],patterns:[P],place:[{id:uid(),pid:P.id,ti:0,s:0,l:16,w:4}],edit:P.id,master:.8,autos:[],autotr:[],aplace:[]}};
@@ -76,7 +80,8 @@ $('projectName').addEventListener('change',()=>{S.projectName=String($('projectN
 
 /* ---------- state / undo / save ---------- */
 const snap=()=>JSON.stringify(S,function(k,v){return(k==='notes'&&this&&this.wave!==undefined)?undefined:v});
-function pushUndo(){undo.push(snap());if(undo.length>100)undo.shift();redo=[]}
+function pushUndoSnap(s){if(EMBED_AUTO){autoPostParent('undo-push',{snap:s});return}undo.push(s);if(undo.length>100)undo.shift();redo=[]}
+function pushUndo(){pushUndoSnap(snap())}
 function restore(j){S=JSON.parse(j);normS();if(!S.projectName)S.projectName='BGM';sel=Math.min(sel,S.tracks.length-1);selNote=null;selSet.clear();$('bpm').value=S.bpm;updateTabTitle();renderTracks();draw();dirty()}
 let saveT=null;
 function dirty(){NC=null;AC=null;ADC=new Map();if(typeof autoResyncSoon==='function')autoResyncSoon();try{refreshAutoMarks()}catch(_){}$('st').textContent='未保存の変更あり';clearTimeout(saveT);saveT=setTimeout(saveDB,800);window.__BGMQueueSharedSync?.()}
@@ -991,7 +996,7 @@ function songNotes(){if(NC)return NC;NC=[];const P=new Map(S.patterns.map(p=>[p.
   return NC}
 function relPB(){if(!EP)return -1;for(const q of S.place)if(q.pid===EP.id&&playBeat>=q.s&&playBeat<q.s+q.l)return(playBeat-q.s)%EP.len;return -1}
 function updInfo(){if(EP){const n=S.place.filter(q=>q.pid===EP.id).length;$('pinfo').textContent='編集中: '+EP.name+' (配置'+n+'箇所)';if(document.activeElement!==$('plen'))$('plen').value=EP.len/4}}
-function draw(){if(VIEW==='auto'&&!EA){setView('song');return}syncBuf();updInfo();if(VIEW==='song'){drawSong();updateHS();updateVS();drawAL()}else if(VIEW==='auto'){updAbar();drawAuto();updateHS();updateVS();drawAL()}else drawRoll();window.__lmmsRefreshPreviews?.()}
+function draw(){if(VIEW==='auto'&&!EA){if(EMBED_AUTO){autoEmptyShow(true);return}setView('song');return}syncBuf();updInfo();if(VIEW==='song'){drawSong();updateHS();updateVS();drawAL()}else if(VIEW==='auto'){autoEmptyShow(false);updAbar();drawAuto();updateHS();updateVS();drawAL()}else drawRoll();window.__lmmsRefreshPreviews?.();window.__BGMAutoSelWatch?.()}
 window.__BGMGetView=()=>VIEW;
 window.__BGMRenderForView=function(v){
   const prev=VIEW,top=roll.scrollTop,left=roll.scrollLeft;
@@ -1042,7 +1047,7 @@ function drawSong(){
     g2.save();g2.beginPath();g2.rect(8,y,100,SRH);g2.clip();g2.fillStyle=C.fg;g2.font='bold 10px system-ui';g2.fillText('⟲ '+(r.name||'Auto'),9,y+SRH/2+4);g2.restore()});
   $('sgbar').querySelector('#pn').disabled=!(sSel||selA);
 }
-function setView(v){if(v===VIEW)return;syncBuf();svTop[VIEW]=roll.scrollTop;svLeft[VIEW]=roll.scrollLeft;VIEW=v;selSet.clear();selNote=null;drag=null;
+function setView(v){if(EMBED_AUTO&&v!=='auto')return;if(v===VIEW)return;syncBuf();svTop[VIEW]=roll.scrollTop;svLeft[VIEW]=roll.scrollLeft;VIEW=v;selSet.clear();selNote=null;drag=null;
   $('vlw').style.display=v==='roll'?'':'none';$('sgbar').style.display=v==='song'?'flex':'none';$('abar').style.display=v==='auto'?'flex':'none';
   $('vSong').classList.toggle('on',v==='song');$('vRoll').classList.toggle('on',v==='roll');draw();roll.scrollTop=svTop[v];roll.scrollLeft=svLeft[v]||0;draw();syncSongBar();window.__BGMQueueSharedSync?.();window.__BGMOnViewChanged?.(v)}
 $('vSong').onclick=()=>{PAEdit=false;$('patAuto').classList.remove('on');$('patAutoKind').style.display='none';setView('song')};$('vRoll').onclick=()=>setView('roll');
@@ -1217,7 +1222,11 @@ function fixAuto(){S.autos=Array.isArray(S.autos)?S.autos:[];S.autotr=Array.isAr
     a.color=a.color||colorFor(a.target);a.name=a.name||(KN[a.kind]||'Automation')}
   S.autotr.forEach(r=>{delete r.tid});
   const keep=new Set(S.aplace.map(q=>q.aid));S.autos=S.autos.filter(a=>keep.has(a.id)||a.id===eaId);
-  EA=S.autos.find(a=>a.id===eaId)||null;EQ=S.aplace.find(q=>q.id===eqId)||null;asel=new Set();selA=null;selAs=new Set();AC=null;ADC=new Map();NC=null;fixCfx()}
+  const _oEA=EA,_ai=_oEA?[...asel].map(p=>_oEA.pts.indexOf(p)).filter(i=>i>=0):[],_sq=new Set(selA?[...selAs].map(q=>q.id):[]),_sp=selA&&selA.id;
+  EA=S.autos.find(a=>a.id===eaId)||null;EQ=S.aplace.find(q=>q.id===eqId)||null;asel=new Set();if(EA)for(const i of _ai)if(EA.pts[i])asel.add(EA.pts[i]);
+  selAs=new Set(S.aplace.filter(q=>_sq.has(q.id)));selA=_sp?(S.aplace.find(q=>q.id===_sp)||null):null;
+  if(EMBED_AUTO&&!EQ){EA=null;eaId=null;eqId=null}
+  AC=null;ADC=new Map();NC=null;fixCfx()}
 function fixLfo(a){const L=a.lfo=a.lfo||{};L.shape=['sine','tri','square','saw'].includes(L.shape)?L.shape:'sine';L.mode=L.mode==='hz'?'hz':'beat';L.period=aClamp(+L.period||4,.0625,64);L.hz=aClamp(+L.hz||1,.05,20);L.amp=aClamp(L.amp==null?.25:+L.amp,0,.5);L.off=aClamp(L.off==null?.5:+L.off,0,1);L.phase=aClamp(+L.phase||0,0,1)}
 const newLfo=target=>{const a=newAuto(target);a.type='lfo';a.interp='linear';a.pts=[];a.lfo={shape:'sine',mode:'beat',period:4,hz:1,amp:.25,off:a.pts.length?.5:aDefN(target),phase:0};fixLfo(a);a.name=a.name+' LFO';return a};
 const aDefN=t=>{const d=autoDesc(t,true);return d?(d.semi?.5:aNorm(d,d.man())):.5};
@@ -1240,7 +1249,10 @@ function refreshAutoMarks(){const idx=autoIdx();document.querySelectorAll('[data
 
 const selOne=q=>{selA=q;selAs=q?new Set([q]):new Set()};
 const rowIdx=q=>S.autotr.findIndex(r=>r.id===q.tr);
-function openAuto(q){const a=S.autos.find(x=>x.id===q.aid);if(!a)return;EA=a;EQ=q;eaId=a.id;eqId=q.id;asel=new Set();AVZ={lo:0,hi:1};svTop.auto=0;if(a.target&&!autoDesc(a.target))$('st').textContent='⚠ このクリップの接続先が見つかりません(トラック/エフェクトが削除された可能性)。接続先を選び直してください';
+function openAuto(q){const a=S.autos.find(x=>x.id===q.aid);if(!a)return;if(window.__BGMAutoWindowed&&!EMBED_AUTO){ // 独立ウィンドウ: 親は選択を保持し、編集は専用iframeが担当する
+    sSel=null;selOne(q);if(a.target&&!autoDesc(a.target))$('st').textContent='⚠ このクリップの接続先が見つかりません(トラック/エフェクトが削除された可能性)。接続先を選び直してください';
+    syncSongBar();draw();window.__BGMOnViewChanged?.('auto');return}
+  EA=a;EQ=q;eaId=a.id;eqId=q.id;asel=new Set();AVZ={lo:0,hi:1};svTop.auto=0;if(a.target&&!autoDesc(a.target))$('st').textContent='⚠ このクリップの接続先が見つかりません(トラック/エフェクトが削除された可能性)。接続先を選び直してください';
   if(VIEW==='auto'){roll.scrollLeft=0;draw()}else{setView('auto');roll.scrollLeft=0;draw()}}
 function drawAutoBlocks(g2,C,sx,vw){const P0=S.tracks.length;
   for(const q of S.aplace){const a=S.autos.find(x=>x.id===q.aid),ri=rowIdx(q);if(!a||ri<0)continue;const x=q.s*BW,w=Math.max(3,q.l*BW),y=(P0+ri)*SRH+3,h=SRH-6;if(x>sx+vw||x+w<sx)continue;
@@ -1385,16 +1397,16 @@ cv.addEventListener('pointermove',e=>{if(VIEW!=='auto'||!EA)return;const rc=cv.g
   if(adr.mode==='line'){adr.t1=snapT(mx/BW);adr.v1=clampV(vOfY(my));draw();return}
   if(adr.mode==='free'){const l=adr.raw[adr.raw.length-1];if(Math.hypot(l.x-mx,l.y-my)>=2){adr.raw.push({x:mx,y:my});draw()}return}
   if(adr.mode==='erase'){const h=aNear(AM.x,my,sx);if(h){if(!adr.pushed){pushUndo();adr.pushed=true}EA.pts=EA.pts.filter(p=>p!==h);asel.delete(h);AC=null;autoResyncSoon();draw()}return}
-  if(!adr.moved){adr.moved=true;if(!adr.pushed){undo.push(adr.before);if(undo.length>100)undo.shift();redo=[]}}edgeScroll(e);
+  if(!adr.moved){adr.moved=true;if(!adr.pushed)pushUndoSnap(adr.before)}edgeScroll(e);
   let dt=snapT(mx/BW-adr.ox)-adr.t0,dv=clampV(vOfY(my)-adr.oy)-adr.v0,mnT=1e9,mxT=-1e9,mnV=1e9,mxV=-1e9;
   for(const o of adr.snap){mnT=Math.min(mnT,o.t);mxT=Math.max(mxT,o.t);mnV=Math.min(mnV,o.v);mxV=Math.max(mxV,o.v)}
   dt=Math.max(-mnT,Math.min(EA.len-mxT,dt));dv=Math.max(-mnV,Math.min(1-mxV,dv));
-  for(const o of adr.snap){o.p.t=o.t+dt;o.p.v=o.v+dv}sortPts();AC=null;autoResyncSoon();draw()});
+  for(const o of adr.snap){o.p.t=o.t+dt;o.p.v=o.v+dv}sortPts();AC=null;autoResyncSoon();window.__BGMQueueSharedSync?.();draw()});
 const aUp=()=>{if(VIEW!=='auto'||!adr)return;const m=adr.mode;
   if(m==='line'&&Math.abs(adr.t1-adr.t0)+Math.abs(adr.v1-adr.v0)>1e-6){pushUndo();aReplaceRange(aLinePts(adr.t0,adr.v0,adr.t1,adr.v1))}
   else if(m==='free'&&adr.raw.length>1){const n=aFreePts(adr.raw);if(n.length>1){pushUndo();aReplaceRange(n);$('st').textContent='自由描画: '+adr.raw.length+'サンプルを'+n.length+'個の制御点に間引きました'}}
   else if(m==='move'&&(adr.moved||adr.pushed))dirty();else if(m==='erase'&&adr.pushed)dirty();
-  adr=null;draw()};cv.addEventListener('pointerup',aUp);cv.addEventListener('pointercancel',aUp);
+  adr=null;if(__pendingShared){const d=__pendingShared;__pendingShared=null;__applyShared(d)}else draw()};cv.addEventListener('pointerup',aUp);cv.addEventListener('pointercancel',aUp);
 cv.addEventListener('pointerleave',()=>{if(VIEW==='auto'&&!adr){AM=null;aHover()}});
 cv.addEventListener('contextmenu',e=>{if(VIEW!=='auto'||!EA)return;e.preventDefault();const rc=cv.getBoundingClientRect(),h=aNear(e.clientX-rc.left,e.clientY-rc.top,roll.scrollLeft);
   if(h){const del=asel.has(h)?new Set(asel):new Set([h]);pushUndo();EA.pts=EA.pts.filter(p=>!del.has(p));asel=new Set();dirty();draw()}});
@@ -2087,22 +2099,121 @@ let __bgmApplyingShared=false,__bgmSyncTimer=null;
 let __bgmChannel=null;
 try{if('BroadcastChannel' in window)__bgmChannel=new BroadcastChannel('bgm-notpc-project-sync-v1')}catch(_){__bgmChannel=null}
 window.__BGMGetProjectSnapshot=()=>snap();
+let __bgmSeqN=0;const __seenSeq=new Map();
+const __fresh=(sender,seq)=>{if(typeof sender!=='string'||typeof seq!=='number')return true;if((__seenSeq.get(sender)||0)>=seq)return false;__seenSeq.set(sender,seq);return true};
+const __bgmPost=()=>{const data=snap(),seq=++__bgmSeqN;
+  try{__bgmChannel&&__bgmChannel.postMessage({type:'project',sender:__bgmSyncId,seq,data})}catch(_){}
+  // file:// などBroadcastChannelが使えない環境でも専用ウィンドウと同期できるよう、postMessageでも送る
+  if(EMBED_AUTO)autoPostParent('project',{data,seq,sender:__bgmSyncId});else window.__BGMOnProjectPost?.(data,seq,__bgmSyncId)};
 window.__BGMQueueSharedSync=()=>{
-  if(__bgmApplyingShared||!__bgmChannel)return;
-  clearTimeout(__bgmSyncTimer);
-  __bgmSyncTimer=setTimeout(()=>{try{__bgmChannel.postMessage({type:'project',sender:__bgmSyncId,data:snap()})}catch(_){}},35);
+  if(__bgmApplyingShared||!__bgmChannel||__bgmSyncTimer)return; // 40msスロットル(ドラッグ中も途中経過を送る)
+  __bgmSyncTimer=setTimeout(()=>{__bgmSyncTimer=null;__bgmPost()},40);
 };
-if(__bgmChannel)__bgmChannel.addEventListener('message',e=>{
-  const m=e.data;if(!m||m.type!=='project'||m.sender===__bgmSyncId||typeof m.data!=='string')return;
+window.__BGMFlushSharedSync=()=>{clearTimeout(__bgmSyncTimer);__bgmSyncTimer=null;__bgmPost()};
+let __pendingShared=null;
+function __applyShared(data){
   try{
-    __bgmApplyingShared=true;S=JSON.parse(m.data);normS();if(!S.projectName)S.projectName='BGM';
+    __bgmApplyingShared=true;S=JSON.parse(data);normS();if(!S.projectName)S.projectName='BGM';
     sel=Math.max(0,Math.min(sel,S.tracks.length-1));selNote=null;selSet.clear();
     EP=S.patterns.find(p=>p.id===S.edit)||S.patterns[0]||null;bufObj=null;NC=null;AC=null;autoResyncSoon();
-    $('bpm').value=S.bpm;updateTabTitle();renderTracks();draw();
+    $('bpm').value=S.bpm;updateTabTitle();renderTracks();
+    if(EMBED_AUTO&&typeof autoReapplySel==='function')autoReapplySel();
+    draw();
   }catch(err){console.warn('Shared project sync failed',err)}finally{__bgmApplyingShared=false}
+}
+if(__bgmChannel)__bgmChannel.addEventListener('message',e=>{
+  const m=e.data;if(!m||m.type!=='project'||m.sender===__bgmSyncId||typeof m.data!=='string')return;
+  if(!__fresh(m.sender,m.seq))return;
+  if(EMBED_AUTO&&adr){__pendingShared=m.data;return} // 制御点のドラッグ中は終了後に反映
+  __applyShared(m.data);
 });
+window.__BGMGetAutoSelection=()=>selA&&S&&S.aplace.includes(selA)?{qid:selA.id,aid:selA.aid}:null;
+let __lastAutoSel='';
+window.__BGMAutoSelWatch=()=>{if(EMBED_AUTO)return;const s=window.__BGMGetAutoSelection(),k=s?s.qid+'|'+s.aid:'';if(k===__lastAutoSel)return;__lastAutoSel=k;window.__BGMOnAutoSelection?.(s)};
+/* 親(lmms-ui.js)が専用iframeからの要求を処理するためのAPI */
+window.__BGMAutoApi={
+  undoPush:snapStr=>{if(typeof snapStr!=='string'||snapStr.length>2e8)return false;try{JSON.parse(snapStr)}catch(_){return false}undo.push(snapStr);if(undo.length>100)undo.shift();redo=[];return true},
+  getTransport:()=>({playing:!!playing,beat:playBeat}),
+  seek:b=>{if(typeof b==='number'&&isFinite(b))seekTo(Math.max(0,Math.min(S.len,b)))},
+  command:c=>{const m={undo:'undo',redo:'redo','toggle-play':'play',stop:'stop',rewind:'rew'}[c];if(m)$(m).click()},
+  flush:()=>window.__BGMFlushSharedSync(),
+  applyShared:(data,sender,seq)=>{if(typeof data!=='string'||data.length>2e8||sender===__bgmSyncId||!__fresh(sender,seq))return;__applyShared(data)},
+  pickClip:qid=>{const q=typeof qid==='string'&&S.aplace.find(x=>x.id===qid);if(q){sSel=null;selOne(q);syncSongBar();draw()}}
+};
+/* ================= オートメーション専用ウィンドウ(iframe側) ================= */
+let __pendingSel=null,__needSyncAt=0,__tPlaying=false,__tRaf=0;
+function autoEmptyShow(on){
+  let el=document.getElementById('autoEmpty');
+  if(!on){if(el)el.hidden=true;return}
+  if(!el){el=document.createElement('div');el.id='autoEmpty';el.setAttribute('role','status');
+    el.innerHTML='<svg viewBox="0 0 64 64" width="72" height="72" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="10" width="52" height="44" rx="4" opacity=".55"/><path d="M6 24h52M6 38h52M22 10v44M38 10v44" opacity=".25" stroke-width="2"/><path d="M12 46c8 0 8-22 16-22s8 18 16 18 6-14 12-14"/><circle cx="12" cy="46" r="3" fill="currentColor"/><circle cx="28" cy="24" r="3" fill="currentColor"/><circle cx="44" cy="42" r="3" fill="currentColor"/></svg><div class="ae-t">オートメーションが選択されていません</div><div class="ae-s">ソングエディターでオートメーションクリップを選択・作成すると、ここで編集できます。</div><div class="ae-h">つまみやフェーダーを右クリック →「オートメーションクリップを作成」</div><div class="ae-l" id="autoEmptyList"></div>';
+    document.body.appendChild(el);
+    el.addEventListener('click',e=>{const b=e.target.closest('button[data-qid]');if(b)autoPostParent('pick',{qid:b.dataset.qid})})}
+  el.hidden=false;
+  const L=el.querySelector('#autoEmptyList'),items=(S&&S.aplace||[]).slice(0,40).map(q=>{const a=S.autos.find(x=>x.id===q.aid);return a?[q.id,a.name,q.s]:null}).filter(Boolean),sig=items.map(i=>i.join('|')).join(';');
+  if(L&&L.dataset.sig!==sig){L.dataset.sig=sig;L.textContent='';if(items.length){const h=document.createElement('div');h.className='ae-lh';h.textContent='既存のクリップから選ぶ';L.appendChild(h);
+    for(const[id,name,st]of items){const b=document.createElement('button');b.type='button';b.dataset.qid=id;b.textContent=name+'(小節 '+(Math.floor(st/4)+1)+')';L.appendChild(b)}}}
+}
+/* 親から渡された選択 {qid,aid} を反映。null なら未選択(案内画面) */
+function autoApplySel(sel){
+  if(!sel){__pendingSel=null;EA=null;EQ=null;eaId=null;eqId=null;asel=new Set();adr=null;AM=null;draw();return}
+  const q=S.aplace.find(x=>x.id===sel.qid),a=q&&S.autos.find(x=>x.id===q.aid);
+  if(!q||!a){ // プロジェクト同期が未着: 到着後に再適用する
+    __pendingSel=sel;EA=null;EQ=null;eaId=null;eqId=null;asel=new Set();adr=null;draw();
+    const n=Date.now();if(n-__needSyncAt>300){__needSyncAt=n;autoPostParent('need-sync')}return}
+  __pendingSel=null;const same=!!EQ&&EQ.id===q.id;
+  EA=a;EQ=q;eaId=a.id;eqId=q.id;
+  if(!same){asel=new Set();adr=null;AM=null;AVZ={lo:0,hi:1};roll.scrollLeft=0;svTop.auto=0;
+    if(a.target&&!autoDesc(a.target))$('st').textContent='⚠ このクリップの接続先が見つかりません(トラック/エフェクトが削除された可能性)。接続先を選び直してください'}
+  draw();
+}
+function autoReapplySel(){if(__pendingSel)autoApplySel(__pendingSel)}
+function autoUpdTransportUI(){const b=$('aPlay');if(b){b.textContent=__tPlaying?'❚❚':'▶';b.classList.toggle('on',__tPlaying)}}
+function autoEmbedInit(){
+  autoEmptyShow(!EA);
+  // 再生・停止・Undo/Redo・シークは親(本体)の単一の再生エンジン/履歴に委譲する
+  const cmd=c=>autoPostParent('cmd',{cmd:c});
+  $('play').onclick=()=>cmd('toggle-play');$('stop').onclick=()=>cmd('stop');$('rew').onclick=()=>cmd('rewind');
+  $('undo').onclick=()=>cmd('undo');$('redo').onclick=()=>cmd('redo');
+  seekTo=function(beat){if(typeof beat==='number'&&isFinite(beat))autoPostParent('seek',{beat})};
+  $('aPlay').onclick=()=>cmd('toggle-play');$('aStop').onclick=()=>cmd('stop');$('aUndo').onclick=()=>cmd('undo');$('aRedo').onclick=()=>cmd('redo');
+  // ツールバーの高さに合わせて編集領域を調整
+  const ab=$('abar'),fit=()=>{document.documentElement.style.setProperty('--abar-h',ab.offsetHeight+'px');draw()};
+  try{new ResizeObserver(fit).observe(ab);new ResizeObserver(()=>draw()).observe(roll)}catch(_){}
+  autoPostParent('ready');
+}
+if(EMBED_AUTO){
+  addEventListener('message',e=>{
+    if(e.source!==window.parent)return;
+    if(!AUTO_OPEN&&e.origin!==location.origin)return;
+    const m=e.data;if(!m||typeof m!=='object'||m.ns!==AUTO_NS||m.v!==1||typeof m.type!=='string')return;
+    if(m.type==='select'){
+      if(m.qid===null)autoApplySel(null);
+      else if(typeof m.qid==='string'&&typeof m.aid==='string'&&m.qid.length<=64&&m.aid.length<=64)autoApplySel({qid:m.qid,aid:m.aid});
+    }else if(m.type==='project'){
+      if(typeof m.data!=='string'||m.data.length>2e8||m.sender===__bgmSyncId||!__fresh(m.sender,m.seq))return;
+      if(adr){__pendingShared=m.data;return}__applyShared(m.data);
+    }else if(m.type==='transport'){
+      if(typeof m.beat!=='number'||!isFinite(m.beat))return;
+      playBeat=Math.max(0,Math.min(1e6,m.beat));__tPlaying=!!m.playing;autoUpdTransportUI();
+      if(!__tRaf)__tRaf=requestAnimationFrame(()=>{__tRaf=0;if(VIEW==='auto'&&EA){followPlayhead();draw()}});
+    }
+  });
+  // ショートカット(LMMS風): S 選択 / D 追加(描画) / E 削除(消しゴム) / L 直線 / F 自由描画、矢印キーで選択点を移動
+  addEventListener('keydown',e=>{
+    if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)||e.ctrlKey||e.metaKey||e.altKey||!EA||EA.type==='lfo')return;
+    const k=e.key,tl={s:'sel',d:'add',e:'del',l:'line',f:'free'}[k.toLowerCase()];
+    if(tl&&k.length===1){ATOOL=tl;updAbar();draw();e.preventDefault();return}
+    if(asel.size&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(k)){
+      e.preventDefault();const g=agrid()||.25,dv=e.shiftKey?.05:.01,L=[...asel];
+      let dt=k==='ArrowRight'?g:k==='ArrowLeft'?-g:0,dV=k==='ArrowUp'?dv:k==='ArrowDown'?-dv:0;
+      dt=Math.max(-Math.min(...L.map(p=>p.t)),Math.min(EA.len-Math.max(...L.map(p=>p.t)),dt));
+      dV=Math.max(-Math.min(...L.map(p=>p.v)),Math.min(1-Math.max(...L.map(p=>p.v)),dV));
+      if(!dt&&!dV)return;pushUndo();for(const p of L){p.t=Math.round((p.t+dt)*1e5)/1e5;p.v=clampV(p.v+dV)}sortPts();dirty();draw()}
+  });
+}
 loadDB().then(()=>{
   $('roll').scrollTop=(HI-1-76)*RH;loadAudioFiles();libInit();
-  if(new URLSearchParams(location.search).get('autoEmbed')==='1'){setView('auto');$('abar').style.display='flex'}
-  if(__bgmChannel){setTimeout(()=>{try{__bgmChannel.postMessage({type:'project',sender:__bgmSyncId,data:snap()})}catch(_){}},120)}
+  if(EMBED_AUTO){setView('auto');$('abar').style.display='flex';autoEmbedInit()}
+  if(__bgmChannel&&!EMBED_AUTO){setTimeout(()=>{try{__bgmChannel.postMessage({type:'project',sender:__bgmSyncId,data:snap()})}catch(_){}},120)}
 });;

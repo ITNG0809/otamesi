@@ -7,6 +7,7 @@
   const main=$('main'), browser=$('aside'), editor=$('#rc'), header=$('header');
   if(!main||!browser||!editor||!header)return;
   document.documentElement.dataset.lmms='1';
+  window.__BGMAutoWindowed=true; // オートメーションは専用iframeで編集(親の表示は切り替えない)
 
   const menu=document.createElement('nav');
   menu.id='lmmsMenu';
@@ -148,7 +149,7 @@
   const autoWinEl=document.createElement('section');autoWinEl.id='lmms-auto-window';autoWinEl.className='lmms-editor-host';main.appendChild(autoWinEl);
   const autoFrame=document.createElement('iframe');autoFrame.id='lmms-auto-frame';autoFrame.title='Automation editor';const autoUrl=new URL(location.href);autoUrl.searchParams.set('autoEmbed','1');autoFrame.src=autoUrl.href;autoWinEl.appendChild(autoFrame);
   const songWin=makeWindow(songWinEl,{id:'song-editor',title:'Song Editor',subtitle:'ARRANGEMENT',initial:{left:'264px',top:'8px',width:'min(900px, calc(100% - 280px))',height:'calc(100% - 46px)'},closeAction:()=>songWinEl.classList.add('lmms-hidden')});
-  const songBar=$('#sgbar'),autoBar=$('#abar');if(songBar){const openAutoBtn=document.createElement('button');openAutoBtn.id='sgOpenAutomation';openAutoBtn.textContent='オートメーションを開く ↗';openAutoBtn.title='オートメーションを独立ウィンドウで開く';openAutoBtn.addEventListener('click',()=>openAutomationWindow());songBar.appendChild(openAutoBtn);songWinEl.insertBefore(songBar,editor)}if(autoBar)autoWinEl.insertBefore(autoBar,autoFrame);
+  const songBar=$('#sgbar'),autoBar=$('#abar');if(songBar){const openAutoBtn=document.createElement('button');openAutoBtn.id='sgOpenAutomation';openAutoBtn.textContent='オートメーションを開く ↗';openAutoBtn.title='オートメーションを独立ウィンドウで開く';openAutoBtn.addEventListener('click',()=>openAutomationWindow());songBar.appendChild(openAutoBtn);songWinEl.insertBefore(songBar,editor)}
   const rollWin=makeWindow(rollWinEl,{id:'piano-roll',title:'Piano Roll',subtitle:'NOTE EDITOR',initial:{left:'310px',top:'42px',width:'min(1000px, calc(100% - 330px))',height:'min(760px, calc(100% - 80px))'},closeAction:()=>rollWinEl.classList.add('lmms-hidden')});
   const autoWin=makeWindow(autoWinEl,{id:'automation-editor',title:'Automation Editor',subtitle:'CONTROL CURVES',initial:{left:'340px',top:'70px',width:'min(1050px, calc(100% - 360px))',height:'min(700px, calc(100% - 110px))'},closeAction:()=>autoWinEl.classList.add('lmms-hidden')});
   // Keep the existing SF2 library and custom-effect DOM/handlers intact; only host them in movable windows.
@@ -157,7 +158,35 @@
   if(fxWinEl)main.appendChild(fxWinEl);
   const sf2Win=sf2WinEl?makeWindow(sf2WinEl,{id:'sf2-library',title:'SF2 Library',subtitle:'SOUNDFONTS',initial:{left:innerWidth<=760?'8px':'180px',top:innerWidth<=760?'8px':'70px',width:'min(980px, calc(100% - 200px))',height:'min(720px, calc(100% - 100px))'},closeAction:()=>{sf2WinEl.hidden=true;document.body.classList.remove('fxopen');syncWindowButtons()}}):null;
   const fxWin=fxWinEl?makeWindow(fxWinEl,{id:'custom-effects',title:'Custom Effects',subtitle:'NODE WORKSPACE',initial:{left:innerWidth<=760?'8px':'220px',top:innerWidth<=760?'8px':'44px',width:'min(1100px, calc(100% - 240px))',height:'min(780px, calc(100% - 80px))'},closeAction:()=>{window.BGMNotpcCloseEffects?.();fxWinEl.hidden=true;document.body.classList.remove('fxopen');syncWindowButtons()}}):null;
-  function openAutomationWindow(selection){autoWin.restore();if(selection)try{autoFrame.contentWindow?.postMessage({type:'bgm-open-auto',selection},location.origin)}catch(_){}syncWindowButtons()}
+  /* ---- オートメーション専用ウィンドウ ⇄ 親画面のメッセージ連携(送信側・受信側とも検証) ---- */
+  const AUTO_NS='bgm-auto',AUTO_OPEN=location.protocol==='file:'||location.origin==='null',AUTO_TARGET=AUTO_OPEN?'*':location.origin;
+  let autoReady=false,lastTransport='';
+  const postAuto=(type,extra)=>{try{autoFrame.contentWindow&&autoFrame.contentWindow.postMessage(Object.assign({ns:AUTO_NS,v:1,type},extra||{}),AUTO_TARGET)}catch(_){}};
+  const pushAutoSelection=()=>{const s=window.__BGMGetAutoSelection?.();postAuto('select',s?{qid:s.qid,aid:s.aid}:{qid:null,aid:null})};
+  window.__BGMOnAutoSelection=()=>pushAutoSelection();
+  window.__BGMOnProjectPost=(data,seq,sender)=>{if(autoReady)postAuto('project',{data,seq,sender})};
+  const AUTO_CMDS=new Set(['undo','redo','toggle-play','stop','rewind']);
+  addEventListener('message',e=>{
+    if(e.source!==autoFrame.contentWindow)return;
+    if(!AUTO_OPEN&&e.origin!==location.origin)return;
+    const m=e.data,api=window.__BGMAutoApi;
+    if(!m||typeof m!=='object'||m.ns!==AUTO_NS||m.v!==1||typeof m.type!=='string'||!api)return;
+    switch(m.type){
+      case 'ready':autoReady=true;lastTransport='';api.flush();pushAutoSelection();break;
+      case 'need-sync':api.flush();pushAutoSelection();break;
+      case 'project':api.applyShared(m.data,m.sender,m.seq);break;
+      case 'pick':api.pickClip(m.qid);break;
+      case 'undo-push':api.undoPush(m.snap);break;
+      case 'seek':if(typeof m.beat==='number'&&isFinite(m.beat))api.seek(m.beat);break;
+      case 'cmd':if(typeof m.cmd==='string'&&AUTO_CMDS.has(m.cmd))api.command(m.cmd);break;
+    }
+  });
+  // 再生位置・再生状態をiframeへ配信(ウィンドウが見えている間だけ、変化があったときのみ)
+  (function tick(){requestAnimationFrame(tick);
+    if(!autoReady||autoWinEl.classList.contains('lmms-hidden')||autoWinEl.classList.contains('lmms-minimized'))return;
+    const t=window.__BGMAutoApi?.getTransport();if(!t)return;const k=(t.playing?1:0)+'|'+t.beat.toFixed(4);
+    if(k===lastTransport)return;lastTransport=k;postAuto('transport',{playing:t.playing,beat:t.beat})})();
+  function openAutomationWindow(){autoWin.restore();lastTransport='';pushAutoSelection();syncWindowButtons()}
   function openEditorView(view){
     if(view==='song'){
       const b=$('#vSong');if(b&&!b.classList.contains('on'))b.click();
