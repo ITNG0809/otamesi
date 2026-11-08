@@ -492,3 +492,29 @@ body.automation-embed #abar .tn-k.off .tn-va{stroke:#6b7480}
 body.automation-embed #roll{background:#222423!important;scrollbar-color:#3a444d #1d1d25}
 body.automation-embed #roll::-webkit-scrollbar{height:12px;width:12px;background:#1d1d25}
 body.automation-embed #roll::-webkit-scrollbar-thumb{background:#3a444d;border-radius:6px;border:2px solid #1d1d25}
+
+/* ===== Song Editor 左トラックヘッダー(アレンジ領域の行に揃える) ===== */
+#sgh{display:none;flex-direction:column;flex:0 0 auto;width:244px;background:var(--panel);border-right:1px solid var(--line);overflow:hidden;user-select:none;-webkit-user-select:none}
+#sghH{box-sizing:border-box;height:24px;flex:0 0 24px;padding:0 8px;display:flex;align-items:center;font-size:11px;color:var(--mut);border-bottom:1px solid var(--line);background:var(--panel)}
+#sghC{flex:1;overflow:hidden;position:relative}#sghT{will-change:transform}
+#sgh .sgr{box-sizing:border-box;display:flex;align-items:center;gap:3px;padding:0 4px 0 5px;border-bottom:1px solid var(--line);border-left:3px solid var(--tc,#2f6fed);background:var(--panel);overflow:hidden}
+#sgh .sgr.odd{background:var(--black)}
+#sgh .sgr.sel{background:color-mix(in srgb,var(--tc,#2f6fed) 22%,var(--panel))}
+#sgh .sgr.au{border-left-color:#7e5fe0;background:var(--black);opacity:.85}
+#sgh .sgi{flex:0 0 auto;width:20px;height:80%;min-height:0;padding:0;font-size:13px;line-height:1;display:inline-flex;align-items:center;justify-content:center;background:transparent;border:0;color:var(--fg);cursor:pointer}
+#sgh .sgn{flex:1 1 40px;min-width:36px;height:80%;min-height:0;padding:0 4px;font-size:12px;background:transparent;border:1px solid transparent;color:var(--fg);border-radius:3px}
+#sgh .sgn:focus{background:var(--bg);border-color:var(--bar)}
+#sgh .sgb,#sgh .sgm{flex:0 0 auto;min-width:0;width:20px;height:80%;min-height:0;padding:0;font-size:11px;line-height:1}
+#sgh .sgb.on{background:#17793b;color:#fff;border-color:#0d5a28}
+#sgh .sgv,#sgh .sgp{min-height:0;height:100%;margin:0;padding:0}
+#sgh .sgv{flex:0 0 42px;width:42px}#sgh .sgp{flex:0 0 34px;width:34px}
+#sgh .sgr.au .sgn{flex:1 1 auto}
+@media(max-width:900px){#sgh{width:190px}#sgh .sgp{display:none}}
+@media(pointer:coarse){#sgh .sgb,#sgh .sgm,#sgh .sgi{width:28px}#sgh .sgn{font-size:13px}}
+body.piano-embed #sgh,body.automation-embed #sgh{display:none!important}
+.sghpop{position:fixed;z-index:10000;display:flex;flex-direction:column;min-width:160px;padding:4px;background:#262b30;border:1px solid #14171a;border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.5)}
+.sghpop button{text-align:left;padding:7px 10px;min-height:32px;background:transparent;border:0;color:#d1d8e4;border-radius:4px;font-size:13px}
+.sghpop button:hover:not(:disabled),.sghpop button:focus-visible{background:#3c444e;outline:none}
+.sghpop button:disabled{opacity:.4}
+.sghpop.ico{display:grid;grid-template-columns:repeat(4,40px);min-width:0}
+.sghpop.ico button{text-align:center;font-size:18px;padding:4px}

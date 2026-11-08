@@ -996,7 +996,7 @@ function songNotes(){if(NC)return NC;NC=[];const P=new Map(S.patterns.map(p=>[p.
   return NC}
 function relPB(){if(!EP)return -1;for(const q of S.place)if(q.pid===EP.id&&playBeat>=q.s&&playBeat<q.s+q.l)return(playBeat-q.s)%EP.len;return -1}
 function updInfo(){if(EP){const n=S.place.filter(q=>q.pid===EP.id).length;$('pinfo').textContent='編集中: '+EP.name+' (配置'+n+'箇所)';if(document.activeElement!==$('plen'))$('plen').value=EP.len/4}}
-function draw(){if(VIEW==='auto'&&!EA){if(EMBED_AUTO){autoEmptyShow(true);return}setView('song');return}syncBuf();updInfo();if(VIEW==='song'){drawSong();updateHS();updateVS();drawAL()}else if(VIEW==='auto'){autoEmptyShow(false);updAbar();drawAuto();updateHS();updateVS();drawAL()}else drawRoll();window.__lmmsRefreshPreviews?.();window.__BGMAutoSelWatch?.()}
+function draw(){if(VIEW==='auto'&&!EA){if(EMBED_AUTO){autoEmptyShow(true);return}setView('song');return}syncBuf();updInfo();if(VIEW==='song'){drawSong();updateHS();updateVS();drawAL()}else if(VIEW==='auto'){autoEmptyShow(false);updAbar();drawAuto();updateHS();updateVS();drawAL()}else drawRoll();sghSync();window.__lmmsRefreshPreviews?.();window.__BGMAutoSelWatch?.()}
 window.__BGMGetView=()=>VIEW;
 window.__BGMRenderForView=function(v){
   const prev=VIEW,top=roll.scrollTop,left=roll.scrollLeft;
@@ -2269,34 +2269,61 @@ if(EMBED_AUTO){
       if(!dt&&!dV)return;pushUndo();for(const p of L){p.t=Math.round((p.t+dt)*1e5)/1e5;p.v=clampV(p.v+dV)}sortPts();dirty();draw()}
   });
 }
+/* ---- Song Editor: アレンジ領域の行に揃えた左トラックヘッダー(段階1) ----
+   既存のデータ(S.tracks / S.autotr / 再生エンジン)は変更せず、同じ状態を読み書きするUIを追加。表示はソング画面のみ。 */
+var SGH_ICONS=['♪','🎹','🎸','🥁','🎻','🎺','🎷','🎤','🔊','🌊','⭐','🔔'];
+var sghBusy=false,sghPopEl=null;
+const sghInv=()=>{const T=$('sghT');if(T)T.dataset.sig=''};
+function sghPopClose(){if(sghPopEl){sghPopEl.remove();sghPopEl=null}}
+function sghPop(anchor,items,cls){sghPopClose();const el=document.createElement('div');el.className='sghpop '+(cls||'');el.setAttribute('role','menu');
+  items.forEach(it=>{const b=document.createElement('button');b.type='button';b.setAttribute('role','menuitem');b.textContent=it[0];if(it[2])b.disabled=true;b.onclick=()=>{sghPopClose();it[1]()};el.appendChild(b)});
+  document.body.appendChild(el);const r=anchor.getBoundingClientRect();let l=r.left,tp=r.bottom+2;if(l+el.offsetWidth>innerWidth-4)l=innerWidth-el.offsetWidth-4;if(tp+el.offsetHeight>innerHeight-4)tp=Math.max(4,r.top-el.offsetHeight-2);
+  el.style.left=Math.max(4,l)+'px';el.style.top=tp+'px';sghPopEl=el;const f=el.querySelector('button:not([disabled])');if(f)f.focus({preventScroll:true})}
+document.addEventListener('pointerdown',e=>{if(sghPopEl&&!sghPopEl.contains(e.target))sghPopClose()},true);
+addEventListener('keydown',e=>{if(sghPopEl&&e.key==='Escape'){e.stopImmediatePropagation();sghPopClose()}},true);
+/* トラック複製: トラック設定(音色・SF2・エフェクト)と、そのトラック上のブロックを独立したパターンとしてコピー。オートメーションクリップは複製しない */
+function dupTrack(i){const t=S.tracks[i];if(!t)return;pushUndo();syncBuf();bufObj=null;
+  const c=JSON.parse(JSON.stringify(t,(k,v)=>k==='notes'?undefined:v));c.id=uid();c.name=t.name+' (コピー)';c.notes=[];(c.fx||[]).forEach(e=>{e.id=uid()});
+  S.tracks.splice(i+1,0,c);S.place.forEach(q=>{if(q.ti>i)q.ti++});
+  const P=new Map(S.patterns.map(p=>[p.id,p])),M=new Map();
+  for(const q of S.place.filter(q=>q.ti===i)){const p=P.get(q.pid);if(!p)continue;let np=M.get(p.id);
+    if(!np){np={id:uid(),name:p.name+' (コピー)',color:p.color,len:p.len,notes:p.notes.map(n=>({p:n.p,s:n.s,d:n.d,v:n.v})),automation:JSON.parse(JSON.stringify(p.automation||{kind:'vol',points:[]}))};M.set(p.id,np);S.patterns.push(np)}
+    S.place.push({id:uid(),pid:np.id,ti:i+1,s:q.s,l:q.l,w:qw(q)})}
+  sel=i+1;syncBuf();renderTracks();draw();dirty();syncSongBar();$('st').textContent='トラック「'+t.name+'」を複製しました(ブロックは独立したパターンとしてコピー)'}
+function sghBuild(){const H=$('sgh'),T=$('sghT'),f=document.activeElement,fk=f&&H.contains(f)&&f.dataset.k&&f.closest('.sgr')?f.dataset.k+'|'+f.closest('.sgr').dataset.i:null;T.textContent='';
+  const mk=(tag,cls,props,k)=>{const e=document.createElement(tag);e.className=cls;Object.assign(e,props||{});if(k)e.dataset.k=k;return e};
+  S.tracks.forEach((t,i)=>{t.id=t.id||uid();const r=mk('div','sgr'+(i===sel?' sel':'')+(i%2?' odd':''));r.dataset.i=i;r.style.height=SRH+'px';r.style.setProperty('--tc',t.color||'#2f6fed');
+    const ic=mk('button','sgi',{type:'button',title:'アイコンを変更',textContent:t.icon||'♪'},'icon');ic.setAttribute('aria-label','アイコンを変更');
+    ic.onclick=()=>sghPop(ic,SGH_ICONS.map(e=>[e,()=>{pushUndo();t.icon=e===SGH_ICONS[0]?undefined:e;dirty();sghInv();renderTracks();draw()}]),'ico');
+    const nm=mk('input','sgn',{value:t.name,title:'トラック名',type:'text'},'name');nm.setAttribute('aria-label','トラック名');
+    nm.onfocus=()=>{if(sel!==i){sel=i;renderTracks()}};nm.oninput=()=>{t.name=nm.value;dirty()};nm.onchange=()=>{t.name=nm.value.trim()||('Track '+(i+1));sghInv();renderTracks();draw()};
+    nm.onkeydown=e=>{e.stopPropagation();if(e.key==='Enter')nm.blur()};
+    const bm=mk('button','sgb'+(t.mute?' on':''),{type:'button',textContent:'M',title:'ミュート'},'mute'),bs=mk('button','sgb'+(t.solo?' on':''),{type:'button',textContent:'S',title:'ソロ'},'solo');
+    bm.onclick=()=>{t.mute=!t.mute;dirty();sghInv();renderTracks();draw()};bs.onclick=()=>{t.solo=!t.solo;dirty();sghInv();renderTracks();draw()};
+    const vo=mk('input','sgv',{type:'range',min:0,max:1,step:.01,value:t.vol,title:'音量(右クリックでオートメーション)'},'vol');vo.setAttribute('aria-label','音量');
+    vo.oninput=()=>{t.vol=+vo.value;if(ctx&&!AUTOLIVE.has('trk:'+t.id+':vol'))getCh(t).in.gain.value=t.vol;dirty()};vo.onchange=()=>{sghInv();renderTracks()};markAuto(vo,'trk:'+t.id+':vol');
+    const pa=mk('input','sgp',{type:'range',min:-1,max:1,step:.05,value:t.pan||0,title:'パン(ダブルクリックで中央 / 右クリックでオートメーション)'},'pan');pa.setAttribute('aria-label','パン');
+    pa.oninput=()=>{t.pan=+pa.value;if(ctx&&!AUTOLIVE.has('trk:'+t.id+':pan'))getCh(t).pan.pan.value=t.pan;dirty()};pa.onchange=()=>{sghInv();renderTracks()};
+    pa.ondblclick=()=>{t.pan=0;pa.value=0;if(ctx&&!AUTOLIVE.has('trk:'+t.id+':pan'))getCh(t).pan.pan.value=0;dirty();sghInv();renderTracks()};markAuto(pa,'trk:'+t.id+':pan');
+    const mo=mk('button','sgm',{type:'button',textContent:'⋯',title:'トラックのメニュー'},'more');mo.setAttribute('aria-label','トラックのメニュー');
+    mo.onclick=()=>sghPop(mo,[['トラックを複製',()=>dupTrack(i)],['上へ移動',()=>{pushUndo();moveTrack(i,-1)},i===0],['下へ移動',()=>{pushUndo();moveTrack(i,1)},i===S.tracks.length-1],['アイコンを変更…',()=>sghPop(ic,SGH_ICONS.map(e=>[e,()=>{pushUndo();t.icon=e===SGH_ICONS[0]?undefined:e;dirty();sghInv();renderTracks();draw()}]),'ico')],['トラックを削除',()=>{const b=$('tl').querySelectorAll('.trk')[i];if(b){const x=b.querySelector('[data-a=del]');if(x)x.click()}}]]);
+    r.onclick=e=>{if(e.target.closest('input,button'))return;sel=i;sghInv();renderTracks();draw()};
+    r.append(ic,nm,bm,bs,vo,pa,mo);T.appendChild(r)});
+  S.autotr.forEach((a,j)=>{const r=mk('div','sgr au'+((S.tracks.length+j)%2?' odd':''));r.style.height=SRH+'px';r.dataset.i='a'+j;
+    const ic=mk('span','sgi',{textContent:'〜',title:'オートメーショントラック'});const nm=mk('input','sgn',{value:a.name,type:'text',title:'オートメーショントラック名'},'name');nm.setAttribute('aria-label','オートメーショントラック名');
+    nm.oninput=()=>{a.name=nm.value;dirty()};nm.onchange=()=>{a.name=nm.value.trim()||('Auto '+(j+1));sghInv();draw()};nm.onkeydown=e=>{e.stopPropagation();if(e.key==='Enter')nm.blur()};
+    r.append(ic,nm);T.appendChild(r)});
+  if(fk){const [k,ri]=fk.split('|'),el=T.querySelector('.sgr[data-i="'+ri+'"] [data-k="'+k+'"]');if(el&&k!=='name')el.focus({preventScroll:true})}}
+function sghSync(){const H=$('sgh');if(!H)return;if(VIEW!=='song'||EMBED_AUTO){H.style.display='none';return}
+  H.style.display='flex';const T=$('sghT');T.style.transform='translateY('+(-roll.scrollTop)+'px)';
+  const sig=JSON.stringify([SRH,sel,S.tracks.map(t=>[t.id,t.name,t.color,t.icon,t.mute,t.solo,t.vol,t.pan]),S.autotr.map(a=>[a.id,a.name])]);
+  if(sig===T.dataset.sig)return;const f=document.activeElement;if(sghBusy||(f&&H.contains(f)&&f.tagName==='INPUT'&&f.type==='text'))return;
+  T.dataset.sig=sig;sghBuild()}
+(()=>{const H=$('sgh');if(!H)return;H.addEventListener('wheel',e=>{roll.scrollTop+=e.deltaY},{passive:true});
+  H.addEventListener('pointerdown',e=>{if(e.target.type==='range')sghBusy=true},true);
+  const end=()=>{if(sghBusy){sghBusy=false;sghInv();draw()}};addEventListener('pointerup',end);addEventListener('pointercancel',end)})();
 loadDB().then(()=>{
   $('roll').scrollTop=(HI-1-76)*RH;loadAudioFiles();libInit();
   if(EMBED_AUTO){setView('auto');$('abar').style.display='flex';autoEmbedInit()}
   if(__bgmChannel&&!EMBED_AUTO){setTimeout(()=>{try{__bgmChannel.postMessage({type:'project',sender:__bgmSyncId,data:snap()})}catch(_){}},120)}
 });;
-
-/* ===== 選択トラックの共有 (親画面 / Piano Roll / 他ウィンドウ) =====
-   Piano Roll は別インスタンスで `sel` を個別に持つため、Browser で選んだトラックと
-   打ち込み(試聴音・音符の追加先)のトラックが食い違っていた。変更をBroadcastChannelで共有する。 */
-(function(){
-  if(typeof BroadcastChannel==='undefined'||EMBED_AUTO)return; // オートメーション専用窓はトラック選択を使わない
-  const ID=Math.random().toString(36).slice(2)+Date.now().toString(36),CH=new BroadcastChannel('bgm-track-select');
-  let last=sel,pending=null;
-  const apply=i=>{
-    if(!Number.isInteger(i)||i<0)return;
-    if(!S||!S.tracks||i>=S.tracks.length){pending=i;return} // トラック追加の同期が先に届かない場合は待つ
-    pending=null;if(i===sel){last=i;return}
-    sel=i;last=i;selNote=null;selSet.clear();
-    try{renderTracks()}catch(_){}
-    draw();
-  };
-  CH.onmessage=e=>{const m=e.data;if(!m||m.t!=='sel'||m.id===ID||!Number.isInteger(m.i)||m.i<0||m.i>9999)return;apply(m.i)};
-  const origDraw=draw;
-  draw=function(){
-    const r=origDraw.apply(this,arguments);
-    if(pending!==null&&S&&S.tracks&&pending<S.tracks.length){const i=pending;pending=null;apply(i)}
-    else if(sel!==last){last=sel;try{CH.postMessage({t:'sel',id:ID,i:sel})}catch(_){}}
-    return r;
-  };
-  setTimeout(()=>{try{CH.postMessage({t:'sel',id:ID,i:sel})}catch(_){}},400);
-})();
