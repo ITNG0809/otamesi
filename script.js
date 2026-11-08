@@ -2091,9 +2091,9 @@ function sbDo(q,kind){if(!q)return;pushUndo();const width=kind==='fit'?Math.max(
 // ---- コンテキストメニュー(右クリック / 長押し)。位置決めとキー操作は共通プルダウン(DD)の関数を再利用 ----
 let ctxM=null;function ctxClose(){if(ctxM){ctxM.el.remove();ctxM=null}}
 function menuAction(k,q){if(!S.place.includes(q))return;sSel=q;selA=null;
-  if(k==='w')sbOpen(q,'w');else if(k==='r'){setRangeMode(true);sbOpen(q,'r')}else if(k==='fit'||k==='reset')sbDo(q,k);else if(k==='open')openPattern(q);else if(k==='dup')dupPl(false);else if(k==='del')delPl()}
+  if(k==='w')sbOpen(q,'w');else if(k==='r'){setRangeMode(true);sbOpen(q,'r')}else if(k==='fit'||k==='reset')sbDo(q,k);else if(k==='open')openPattern(q);else if(k==='dup')dupPl(false);else if(k==='del')delPl();else if(k==='cp')blkCopy(q);else if(k==='cut'){if(blkCopy(q))delPl()}else if(k==='pst')blkPaste(false);else if(k==='pstI')blkPaste(true);else if(k==='rn')blkRename(q);else if(k==='cl')blkColor(q)}
 function openBlockMenu(cx,cy,q){ctxClose();sSel=q;selA=null;syncSongBar();draw();
-  const items=[['w','ブロック長を変更…'],['r','再生範囲を編集…'],['fit','表示幅を再生範囲に合わせる'],['reset','表示幅を初期値に戻す'],['open','ピアノロールで開く'],['dup','複製(同じパターンを参照)'],['del','ブロックを削除']];
+  const items=[['open','ピアノロールで開く'],['rn','名前を変更…'],['cl','色を変更…'],['cp','コピー  (Ctrl+C)'],['cut','切り取り  (Ctrl+X)'],['pst','貼り付け(同じパターンを参照)  (Ctrl+V)'],['pstI','貼り付け(独立コピー)  (Ctrl+Shift+V)'],['dup','複製(同じパターンを参照)'],['w','ブロック長を変更…'],['r','再生範囲を編集…'],['fit','表示幅を再生範囲に合わせる'],['reset','表示幅を初期値に戻す'],['del','ブロックを削除']];
   const el=document.createElement('div');el.className='ddp ctxm';el.setAttribute('role','menu');el.setAttribute('aria-label','ブロックのメニュー');
   el.innerHTML='<div class="ddl" tabindex="-1">'+items.map((it,i)=>'<div class="ddi" role="menuitem" tabindex="-1" data-i="'+i+'"><span class="dt">'+it[1]+'</span></div>').join('')+'</div>';document.body.appendChild(el);
   const pw=Math.max(el.offsetWidth,200),pos=DD.place({left:cx,top:cy,right:cx,bottom:cy,width:0},innerWidth,innerHeight,pw,el.offsetHeight,8);el.style.left=pos.left+'px';el.style.top=pos.top+'px';el.style.maxHeight=pos.h+'px';el.style.minWidth=pw+'px';
@@ -2158,7 +2158,11 @@ try{if('BroadcastChannel' in window)__bgmChannel=new BroadcastChannel('bgm-notpc
 window.__BGMGetProjectSnapshot=()=>snap();
 let __bgmSeqN=0;const __seenSeq=new Map();
 const __fresh=(sender,seq)=>{if(typeof sender!=='string'||typeof seq!=='number')return true;if((__seenSeq.get(sender)||0)>=seq)return false;__seenSeq.set(sender,seq);return true};
-const __bgmPost=()=>{const data=snap(),seq=++__bgmSeqN;
+/* 選択中トラックは各ウィンドウ(ソング/ピアノロール)で別々の変数だったため、音源が食い違っていた。送信データに選択トラックIDを載せて揃える */
+const __withSel=str=>{try{const t=S.tracks[sel];return t&&t.id?str.slice(0,-1)+',"__sel":'+JSON.stringify(t.id)+'}':str}catch(_){return str}};
+var __lastSelId=null;
+function selShareCheck(){try{const t=S&&S.tracks&&S.tracks[sel],id=t&&t.id;if(id&&id!==__lastSelId){__lastSelId=id;if(!__bgmApplyingShared&&window.__BGMQueueSharedSync)window.__BGMQueueSharedSync()}}catch(_){}}
+const __bgmPost=()=>{const data=__withSel(snap()),seq=++__bgmSeqN;
   try{__bgmChannel&&__bgmChannel.postMessage({type:'project',sender:__bgmSyncId,seq,data})}catch(_){}
   // file:// などBroadcastChannelが使えない環境でも専用ウィンドウと同期できるよう、postMessageでも送る
   if(EMBED_AUTO)autoPostParent('project',{data,seq,sender:__bgmSyncId});else window.__BGMOnProjectPost?.(data,seq,__bgmSyncId)};
@@ -2170,9 +2174,9 @@ window.__BGMFlushSharedSync=()=>{clearTimeout(__bgmSyncTimer);__bgmSyncTimer=nul
 let __pendingShared=null;
 function __applyShared(data){
   try{
-    __bgmApplyingShared=true;S=JSON.parse(data);normS();if(!S.projectName)S.projectName='BGM';
-    sel=Math.max(0,Math.min(sel,S.tracks.length-1));selNote=null;selSet.clear();
-    EP=S.patterns.find(p=>p.id===S.edit)||S.patterns[0]||null;bufObj=null;NC=null;AC=null;autoResyncSoon();
+    __bgmApplyingShared=true;S=JSON.parse(data);const __ss=S.__sel;delete S.__sel;normS();if(!S.projectName)S.projectName='BGM';
+    sel=Math.max(0,Math.min(sel,S.tracks.length-1));if(__ss){const k=S.tracks.findIndex(t=>t.id===__ss);if(k>=0)sel=k}selNote=null;selSet.clear();
+    EP=S.patterns.find(p=>p.id===S.edit)||S.patterns[0]||null;bufObj=null;NC=null;AC=null;autoResyncSoon();try{__lastSelId=S.tracks[sel].id}catch(_){}
     $('bpm').value=S.bpm;updateTabTitle();renderTracks();
     if(EMBED_AUTO&&typeof autoReapplySel==='function')autoReapplySel();
     draw();
@@ -2314,7 +2318,7 @@ function sghBuild(){const H=$('sgh'),T=$('sghT'),f=document.activeElement,fk=f&&
     nm.oninput=()=>{a.name=nm.value;dirty()};nm.onchange=()=>{a.name=nm.value.trim()||('Auto '+(j+1));sghInv();draw()};nm.onkeydown=e=>{e.stopPropagation();if(e.key==='Enter')nm.blur()};
     r.append(ic,nm);T.appendChild(r)});
   if(fk){const [k,ri]=fk.split('|'),el=T.querySelector('.sgr[data-i="'+ri+'"] [data-k="'+k+'"]');if(el&&k!=='name')el.focus({preventScroll:true})}}
-function sghSync(){const H=$('sgh');if(!H)return;if(VIEW!=='song'||EMBED_AUTO){H.style.display='none';return}
+function sghSync(){selShareCheck();const H=$('sgh');if(!H)return;if(VIEW!=='song'||EMBED_AUTO){H.style.display='none';return}
   H.style.display='flex';const T=$('sghT');T.style.transform='translateY('+(-roll.scrollTop)+'px)';
   const sig=JSON.stringify([SRH,sel,S.tracks.map(t=>[t.id,t.name,t.color,t.icon,t.mute,t.solo,t.vol,t.pan]),S.autotr.map(a=>[a.id,a.name])]);
   if(sig===T.dataset.sig)return;const f=document.activeElement;if(sghBusy||(f&&H.contains(f)&&f.tagName==='INPUT'&&f.type==='text'))return;
@@ -2322,8 +2326,27 @@ function sghSync(){const H=$('sgh');if(!H)return;if(VIEW!=='song'||EMBED_AUTO){H
 (()=>{const H=$('sgh');if(!H)return;H.addEventListener('wheel',e=>{roll.scrollTop+=e.deltaY},{passive:true});
   H.addEventListener('pointerdown',e=>{if(e.target.type==='range')sghBusy=true},true);
   const end=()=>{if(sghBusy){sghBusy=false;sghInv();draw()}};addEventListener('pointerup',end);addEventListener('pointercancel',end)})();
+/* ---- Song Editor 段階2: パターンブロックのコピー/切り取り/貼り付け・名前変更・色変更 ----
+   既存の配置データ(S.place: {id,pid,ti,s,l,w})とパターン(S.patterns)の形式は変更しない。 */
+var blkClip=null,blkPref=false,__shiftDown=false;
+addEventListener('keydown',e=>{__shiftDown=e.shiftKey},true);addEventListener('keyup',e=>{__shiftDown=e.shiftKey},true);
+function blkCopy(q){const P=patOf(q);if(!P||!S.place.includes(q))return false;
+  blkClip={pid:P.id,l:q.l,w:qw(q),snap:{name:P.name,color:P.color,len:P.len,notes:P.notes.map(n=>({p:n.p,s:n.s,d:n.d,v:n.v})),automation:JSON.parse(JSON.stringify(P.automation||{kind:'vol',points:[]}))}};
+  blkPref=true;$('st').textContent='ブロック「'+P.name+'」をコピーしました(Ctrl+V: 同じパターンを参照 / Ctrl+Shift+V: 独立コピー)';return true}
+/* 貼り付け位置: ブロックを選択中ならその直後(同じトラック)、未選択ならプレイヘッド位置(選択中トラック) */
+function blkPaste(indep){const C=blkClip;if(!C){$('st').textContent='コピーしたブロックがありません';return}
+  const hasSel=sSel&&S.place.includes(sSel),ti=hasSel&&S.tracks[sSel.ti]?sSel.ti:(S.tracks[sel]?sel:0),s=hasSel?sSel.s+sSel.l:Math.max(0,Math.round(playBeat/SNAP)*SNAP);
+  if(s+C.l>MAXBARS*4){alert('最大小節数を超えるため貼り付けできません');return}
+  pushUndo();let pid=C.pid;const ex=S.patterns.some(p=>p.id===C.pid),mkP=!indep&&ex?null:C.snap;
+  if(mkP){const P2={id:uid(),name:mkP.name+(ex?' (コピー)':''),color:mkP.color,len:mkP.len,notes:mkP.notes.map(n=>({p:n.p,s:n.s,d:n.d,v:n.v})),automation:JSON.parse(JSON.stringify(mkP.automation))};S.patterns.push(P2);pid=P2.id}
+  const q={id:uid(),pid,ti,s,l:C.l,w:C.w};S.place.push(q);sSel=q;selA=null;fitSong();dirty();draw();syncSongBar();
+  $('st').textContent=mkP?'ブロックを独立したパターンとして貼り付けました':'同じパターンを参照するブロックを貼り付けました'}
+function blkRename(q){const P=patOf(q);if(!P)return;const n=prompt('パターン名(同じパターンを参照する全ブロックの名前が変わります)',P.name);if(n==null||!n.trim()||n.trim()===P.name)return;pushUndo();P.name=n.trim();dirty();syncSongBar();draw()}
+function blkColor(q){if(!patOf(q))return;sSel=q;selA=null;syncSongBar();const c=$('pc');if(c&&!c.disabled)c.click()}
+const _cs2=copySel;copySel=function(cut){if(VIEW==='song'){if(selA){blkPref=false;return _cs2(cut)}if(sSel&&S.place.includes(sSel)){if(blkCopy(sSel)&&cut)delPl();return}}return _cs2(cut)};
+const _ps2=pasteSel;pasteSel=function(){if(VIEW==='song'&&blkClip&&(blkPref||!(selA&&ACBUF))){blkPaste(__shiftDown);return}return _ps2()};
 loadDB().then(()=>{
   $('roll').scrollTop=(HI-1-76)*RH;loadAudioFiles();libInit();
   if(EMBED_AUTO){setView('auto');$('abar').style.display='flex';autoEmbedInit()}
-  if(__bgmChannel&&!EMBED_AUTO){setTimeout(()=>{try{__bgmChannel.postMessage({type:'project',sender:__bgmSyncId,data:snap()})}catch(_){}},120)}
+  if(__bgmChannel&&!EMBED_AUTO){setTimeout(()=>{try{__bgmChannel.postMessage({type:'project',sender:__bgmSyncId,data:__withSel(snap())})}catch(_){}},120)}
 });;
