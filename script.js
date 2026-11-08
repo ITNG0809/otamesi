@@ -247,7 +247,7 @@ cv.addEventListener('pointerdown',e=>{
   else{const p=HI-1-Math.floor(y/RH);if(p<LO||p>=HI){undo.pop();return}
     const s=Math.max(0,Math.min(S.len-lastDur,Math.floor(x/BW/GRID+1e-9)*GRID));
     n={p,s,d:lastDur,v:100};t.notes.push(n);selSet.clear();selSet.add(n);picked=[n]}
-  selNote=n;voice(t,n.p,n.v,ctx.currentTime,.25);
+  selNote=n;voice(pvTrack(),n.p,n.v,ctx.currentTime,.25);
   const snap=[...selSet].map(m=>({m,s:m.s,p:m.p,d:m.d}));
   drag={mode,n,ox:x/BW-n.s,moved:false,n0s:n.s,n0p:n.p,was,mod,cx:e.clientX,cy:e.clientY,snap,
     groupStart:snap.length?Math.min(...snap.map(o=>o.s)):n.s,
@@ -291,7 +291,7 @@ cv.addEventListener('pointermove',e=>{
     ds=Math.max(-mnS,Math.min(S.len-mxE,ds));
     let dp=Math.max(LO,Math.min(HI-1,HI-1-Math.floor(y/RH)))-drag.n0p;
     dp=Math.max(LO-mnP,Math.min(HI-1-mxP,dp));
-    if(n.p!==drag.n0p+dp)voice(S.tracks[sel],drag.n0p+dp,n.v,ctx.currentTime,.15);
+    if(n.p!==drag.n0p+dp)voice(pvTrack(),drag.n0p+dp,n.v,ctx.currentTime,.15);
     for(const o of drag.snap){o.m.s=o.s+ds;o.m.p=o.p+dp}}
   drag.moved=true;draw();
 });
@@ -305,7 +305,7 @@ const endDrag=e=>{if(e&&TP.has(e.pointerId))TP.delete(e.pointerId);if(pinch){if(
 function tapErase(n){const t=S.tracks[sel];t.notes=t.notes.filter(x=>x!==n);selSet.delete(n);if(selNote===n)selNote=null;draw();dirty();$('st').textContent='音符を削除しました(空いた場所をタップで追加 / ↶で元に戻せます)'}
 function tapAdd(x,y){const t=S.tracks[sel];pushUndo();if(x>=S.len*BW)S.len=Math.min(MAXBARS*4,Math.ceil(x/BW/4)*4);
   const p=HI-1-Math.floor(y/RH);if(p<LO||p>=HI){undo.pop();return}
-  const s2=Math.max(0,Math.min(S.len-lastDur,Math.floor(x/BW/GRID+1e-9)*GRID)),n={p,s:s2,d:lastDur,v:100};t.notes.push(n);selSet.clear();selSet.add(n);selNote=n;voice(t,n.p,n.v,ctx.currentTime,.25);draw();dirty()}
+  const s2=Math.max(0,Math.min(S.len-lastDur,Math.floor(x/BW/GRID+1e-9)*GRID)),n={p,s:s2,d:lastDur,v:100};t.notes.push(n);selSet.clear();selSet.add(n);selNote=n;voice(pvTrack(),n.p,n.v,ctx.currentTime,.25);draw();dirty()}
 function tapPan(e){const d=drag;if(!d.moved&&Math.hypot(e.clientX-d.cx,e.clientY-d.cy)<8)return;d.moved=true;d.mode='pan';roll.scrollLeft=d.sl-(e.clientX-d.cx);roll.scrollTop=d.st-(e.clientY-d.cy)}
 function startPinch(){const[a,b]=[...TP.values()];drag=null;pinch={dx:Math.max(20,Math.abs(a.x-b.x)),dy:Math.max(20,Math.abs(a.y-b.y)),zh,zv}}
 function pinchMove(){const v=[...TP.values()];if(v.length<2)return;const dx=Math.abs(v[0].x-v[1].x),dy=Math.abs(v[0].y-v[1].y);if(dx>=20)zoomH(pinch.zh*dx/pinch.dx);if(dy>=20)zoomV(pinch.zv*dy/pinch.dy)}
@@ -831,7 +831,7 @@ vl.addEventListener('pointerdown',e=>{const{x,y}=vXY(e),tv=vOf(y);let best=null,
   if(!selSet.has(best)){selSet.clear();selSet.add(best)}selNote=best;
   vdrag={n:best,v0:best.v,group:[...selSet].map(n=>({n,v:n.v}))};vApply(e)});
 vl.addEventListener('pointermove',e=>{if(vdrag)vApply(e)});
-const vEnd=()=>{if(!vdrag)return;const n=vdrag.n;vdrag=null;voice(S.tracks[sel],n.p,n.v,ctx.currentTime,.3);draw();dirty()};
+const vEnd=()=>{if(!vdrag)return;const n=vdrag.n;vdrag=null;voice(pvTrack(),n.p,n.v,ctx.currentTime,.3);draw();dirty()};
 vl.addEventListener('pointerup',vEnd);vl.addEventListener('pointercancel',vEnd);
 /* ---------- 複製 ---------- */
 function dupSel(){const a=selList();if(!a.length){$('st').textContent='複製する音符を選択してください(選択モードで範囲選択)';return}
@@ -988,6 +988,10 @@ function fixPatterns(){try{
   if(!EP){EP=newPattern(S.tracks[0].color);S.patterns.push(EP)}
   S.edit=EP.id;bufObj=null;NC=null;fixAuto()}
  catch(e){alert('パターンへのデータ移行に失敗しました: '+e.message+'\n元のデータは変更していません。')}}
+/* ピアノロールの試聴音源: 再生時と同じ、編集中パターン(EP)を配置しているトラック。選択中トラックにEPの配置があればそれ、
+   なければ開いているブロックのトラック、なければ最初の配置のトラック。どこにも配置が無いときだけ選択中トラック */
+function pvTrack(){const t=S.tracks[sel];if(!EP)return t;const pl=S.place.filter(q=>q.pid===EP.id&&S.tracks[q.ti]);if(!pl.length)return t;
+  const q=pl.find(x=>x.ti===sel)||(sSel&&sSel.pid===EP.id&&S.place.includes(sSel)&&S.tracks[sSel.ti]?sSel:null)||pl[0];return S.tracks[q.ti]}
 function syncBuf(){if(EP&&bufObj)EP.notes=bufObj.notes;S.tracks.forEach((t,i)=>{t.notes=(EP&&i===sel)?EP.notes:[]});bufObj=EP?S.tracks[sel]:null}
 function songNotes(){if(NC)return NC;NC=[];const P=new Map(S.patterns.map(p=>[p.id,p]));
   for(const pl of S.place){const p=P.get(pl.pid),t=S.tracks[pl.ti];if(!p||!t)continue;
