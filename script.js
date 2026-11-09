@@ -247,7 +247,7 @@ cv.addEventListener('pointerdown',e=>{
   else{const p=HI-1-Math.floor(y/RH);if(p<LO||p>=HI){undo.pop();return}
     const s=Math.max(0,Math.min(S.len-lastDur,Math.floor(x/BW/GRID+1e-9)*GRID));
     n={p,s,d:lastDur,v:100};t.notes.push(n);selSet.clear();selSet.add(n);picked=[n]}
-  selNote=n;voice(pvTrack(),n.p,n.v,ctx.currentTime,.25);
+  selNote=n;voice(t,n.p,n.v,ctx.currentTime,.25);
   const snap=[...selSet].map(m=>({m,s:m.s,p:m.p,d:m.d}));
   drag={mode,n,ox:x/BW-n.s,moved:false,n0s:n.s,n0p:n.p,was,mod,cx:e.clientX,cy:e.clientY,snap,
     groupStart:snap.length?Math.min(...snap.map(o=>o.s)):n.s,
@@ -291,7 +291,7 @@ cv.addEventListener('pointermove',e=>{
     ds=Math.max(-mnS,Math.min(S.len-mxE,ds));
     let dp=Math.max(LO,Math.min(HI-1,HI-1-Math.floor(y/RH)))-drag.n0p;
     dp=Math.max(LO-mnP,Math.min(HI-1-mxP,dp));
-    if(n.p!==drag.n0p+dp)voice(pvTrack(),drag.n0p+dp,n.v,ctx.currentTime,.15);
+    if(n.p!==drag.n0p+dp)voice(S.tracks[sel],drag.n0p+dp,n.v,ctx.currentTime,.15);
     for(const o of drag.snap){o.m.s=o.s+ds;o.m.p=o.p+dp}}
   drag.moved=true;draw();
 });
@@ -305,7 +305,7 @@ const endDrag=e=>{if(e&&TP.has(e.pointerId))TP.delete(e.pointerId);if(pinch){if(
 function tapErase(n){const t=S.tracks[sel];t.notes=t.notes.filter(x=>x!==n);selSet.delete(n);if(selNote===n)selNote=null;draw();dirty();$('st').textContent='音符を削除しました(空いた場所をタップで追加 / ↶で元に戻せます)'}
 function tapAdd(x,y){const t=S.tracks[sel];pushUndo();if(x>=S.len*BW)S.len=Math.min(MAXBARS*4,Math.ceil(x/BW/4)*4);
   const p=HI-1-Math.floor(y/RH);if(p<LO||p>=HI){undo.pop();return}
-  const s2=Math.max(0,Math.min(S.len-lastDur,Math.floor(x/BW/GRID+1e-9)*GRID)),n={p,s:s2,d:lastDur,v:100};t.notes.push(n);selSet.clear();selSet.add(n);selNote=n;voice(pvTrack(),n.p,n.v,ctx.currentTime,.25);draw();dirty()}
+  const s2=Math.max(0,Math.min(S.len-lastDur,Math.floor(x/BW/GRID+1e-9)*GRID)),n={p,s:s2,d:lastDur,v:100};t.notes.push(n);selSet.clear();selSet.add(n);selNote=n;voice(t,n.p,n.v,ctx.currentTime,.25);draw();dirty()}
 function tapPan(e){const d=drag;if(!d.moved&&Math.hypot(e.clientX-d.cx,e.clientY-d.cy)<8)return;d.moved=true;d.mode='pan';roll.scrollLeft=d.sl-(e.clientX-d.cx);roll.scrollTop=d.st-(e.clientY-d.cy)}
 function startPinch(){const[a,b]=[...TP.values()];drag=null;pinch={dx:Math.max(20,Math.abs(a.x-b.x)),dy:Math.max(20,Math.abs(a.y-b.y)),zh,zv}}
 function pinchMove(){const v=[...TP.values()];if(v.length<2)return;const dx=Math.abs(v[0].x-v[1].x),dy=Math.abs(v[0].y-v[1].y);if(dx>=20)zoomH(pinch.zh*dx/pinch.dx);if(dy>=20)zoomV(pinch.zv*dy/pinch.dy)}
@@ -831,7 +831,7 @@ vl.addEventListener('pointerdown',e=>{const{x,y}=vXY(e),tv=vOf(y);let best=null,
   if(!selSet.has(best)){selSet.clear();selSet.add(best)}selNote=best;
   vdrag={n:best,v0:best.v,group:[...selSet].map(n=>({n,v:n.v}))};vApply(e)});
 vl.addEventListener('pointermove',e=>{if(vdrag)vApply(e)});
-const vEnd=()=>{if(!vdrag)return;const n=vdrag.n;vdrag=null;voice(pvTrack(),n.p,n.v,ctx.currentTime,.3);draw();dirty()};
+const vEnd=()=>{if(!vdrag)return;const n=vdrag.n;vdrag=null;voice(S.tracks[sel],n.p,n.v,ctx.currentTime,.3);draw();dirty()};
 vl.addEventListener('pointerup',vEnd);vl.addEventListener('pointercancel',vEnd);
 /* ---------- 複製 ---------- */
 function dupSel(){const a=selList();if(!a.length){$('st').textContent='複製する音符を選択してください(選択モードで範囲選択)';return}
@@ -970,7 +970,16 @@ $('patAuto').onclick=togglePatternAutomation;$('patAutoKind').onchange=e=>{PAKin
 /* ---------- パターン / ソングエディター ---------- */
 let EP=null,bufObj=null,NC=null,VIEW='roll',sSel=null,sdrag=null,lastTap={pl:null,t:0};const SRH=(window.matchMedia&&matchMedia('(pointer:coarse)').matches)?34:24,svTop={roll:(HI-1-76)*RH,song:0},svLeft={roll:0,song:0};
 function uid(){return Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-3)}
-const contentH=()=>VIEW==='song'?(S.tracks.length+S.autotr.length)*SRH+RULER:VIEW==='auto'?roll.clientHeight:ROWS*RH+RULER;
+/* ---- ソングエディターの行レイアウト(トラックごとの高さ: 折りたたみ・縦ズーム対応) ----
+   行番号 i: 0..tracks.length-1 = 通常トラック / 以降 = オートメーショントラック */
+let SZV=1,sSels=new Set(),sband=null;try{const v=+localStorage.getItem('daw-szv');if(v>=.6&&v<=2)SZV=v}catch(_){}
+const COARSE=!!(window.matchMedia&&matchMedia('(pointer:coarse)').matches);
+const rowBase=()=>Math.round((COARSE?46:34)*SZV);
+const rowCount=()=>S.tracks.length+S.autotr.length;
+const rowH=i=>{const t=S.tracks[i];return t&&t.collapsed?Math.max(20,Math.round(rowBase()*.62)):rowBase()};
+const rowTop=n=>{let y=0;const m=Math.min(n,rowCount());for(let i=0;i<m;i++)y+=rowH(i);return y};
+const rowAt=y=>{if(y<0)return -1;let a=0;const n=rowCount();for(let i=0;i<n;i++){const h=rowH(i);if(y<a+h)return i;a+=h}return n};
+const contentH=()=>VIEW==='song'?rowTop(rowCount())+RULER:VIEW==='auto'?roll.clientHeight:ROWS*RH+RULER;
 function newPattern(color){return{id:uid(),name:'Pattern '+(S.patterns.length+1),color:color||TCOL[0],len:16,notes:[],automation:{kind:'vol',curves:{vol:[],pitch:[],echo:[]}}}}
 function fixPatterns(){try{
   S.tracks.forEach((t,i)=>{t.color=t.color||TCOL[i%TCOL.length];t.id=t.id||uid()});
@@ -988,10 +997,6 @@ function fixPatterns(){try{
   if(!EP){EP=newPattern(S.tracks[0].color);S.patterns.push(EP)}
   S.edit=EP.id;bufObj=null;NC=null;fixAuto()}
  catch(e){alert('パターンへのデータ移行に失敗しました: '+e.message+'\n元のデータは変更していません。')}}
-/* ピアノロールの試聴音源: 再生時と同じ、編集中パターン(EP)を配置しているトラック。選択中トラックにEPの配置があればそれ、
-   なければ開いているブロックのトラック、なければ最初の配置のトラック。どこにも配置が無いときだけ選択中トラック */
-function pvTrack(){const t=S.tracks[sel];if(!EP)return t;const pl=S.place.filter(q=>q.pid===EP.id&&S.tracks[q.ti]);if(!pl.length)return t;
-  const q=pl.find(x=>x.ti===sel)||(sSel&&sSel.pid===EP.id&&S.place.includes(sSel)&&S.tracks[sSel.ti]?sSel:null)||pl[0];return S.tracks[q.ti]}
 function syncBuf(){if(EP&&bufObj)EP.notes=bufObj.notes;S.tracks.forEach((t,i)=>{t.notes=(EP&&i===sel)?EP.notes:[]});bufObj=EP?S.tracks[sel]:null}
 function songNotes(){if(NC)return NC;NC=[];const P=new Map(S.patterns.map(p=>[p.id,p]));
   for(const pl of S.place){const p=P.get(pl.pid),t=S.tracks[pl.ti];if(!p||!t)continue;
@@ -1000,7 +1005,7 @@ function songNotes(){if(NC)return NC;NC=[];const P=new Map(S.patterns.map(p=>[p.
   return NC}
 function relPB(){if(!EP)return -1;for(const q of S.place)if(q.pid===EP.id&&playBeat>=q.s&&playBeat<q.s+q.l)return(playBeat-q.s)%EP.len;return -1}
 function updInfo(){if(EP){const n=S.place.filter(q=>q.pid===EP.id).length;$('pinfo').textContent='編集中: '+EP.name+' (配置'+n+'箇所)';if(document.activeElement!==$('plen'))$('plen').value=EP.len/4}}
-function draw(){if(VIEW==='auto'&&!EA){if(EMBED_AUTO){autoEmptyShow(true);return}setView('song');return}syncBuf();updInfo();if(VIEW==='song'){drawSong();updateHS();updateVS();drawAL()}else if(VIEW==='auto'){autoEmptyShow(false);updAbar();drawAuto();updateHS();updateVS();drawAL()}else drawRoll();sghSync();window.__lmmsRefreshPreviews?.();window.__BGMAutoSelWatch?.()}
+function draw(){if(VIEW==='auto'&&!EA){if(EMBED_AUTO){autoEmptyShow(true);return}setView('song');return}syncBuf();updInfo();if(VIEW==='song'){drawSong();updateHS();updateVS();drawAL()}else if(VIEW==='auto'){autoEmptyShow(false);updAbar();drawAuto();updateHS();updateVS();drawAL()}else drawRoll();window.__lmmsRefreshPreviews?.();window.__BGMAutoSelWatch?.()}
 window.__BGMGetView=()=>VIEW;
 window.__BGMRenderForView=function(v){
   const prev=VIEW,top=roll.scrollTop,left=roll.scrollLeft;
@@ -1008,18 +1013,18 @@ window.__BGMRenderForView=function(v){
   finally{VIEW=prev;roll.scrollTop=top;roll.scrollLeft=left}
 };
 function drawSong(){
-  const r=devicePixelRatio||1,vw=Math.max(1,roll.clientWidth),vh=Math.max(1,roll.clientHeight),W=S.len*BW,H=(S.tracks.length+S.autotr.length)*SRH,sx=roll.scrollLeft,sy=roll.scrollTop;
+  const r=devicePixelRatio||1,vw=Math.max(1,roll.clientWidth),vh=Math.max(1,roll.clientHeight),W=S.len*BW,H=rowTop(rowCount()),sx=roll.scrollLeft,sy=roll.scrollTop;
   sz.style.width=W+'px';sz.style.height=(H+RULER)+'px';
   const cw=Math.round(vw*r),chh=Math.round(vh*r);if(cv.width!==cw||cv.height!==chh){cv.width=cw;cv.height=chh;cv.style.width=vw+'px';cv.style.height=vh+'px'}
   const C={bg:css('--bg'),panel:css('--panel'),fg:css('--fg'),mut:css('--mut'),line:css('--line'),beat:css('--beat'),bar:css('--bar'),black:css('--black')};
   g2.setTransform(r,0,0,r,0,0);g2.globalAlpha=1;g2.lineWidth=1;g2.fillStyle=C.bg;g2.fillRect(0,0,vw,vh);
   const nb=S.len/4,b0=Math.max(0,Math.floor(sx/BW/4)),b1=Math.min(nb,Math.ceil((sx+vw)/BW/4)),x1=Math.min(W,sx+vw);
   g2.save();g2.beginPath();g2.rect(0,RULER,vw,vh-RULER);g2.clip();g2.translate(-sx,RULER-sy);
-  for(let i=0;i<S.tracks.length+S.autotr.length;i++){g2.fillStyle=i>=S.tracks.length?C.black:(i%2?C.black:C.panel);g2.globalAlpha=i>=S.tracks.length?.6:1;g2.fillRect(sx,i*SRH,x1-sx,SRH);g2.globalAlpha=1}
+  for(let i=0;i<rowCount();i++){g2.fillStyle=i>=S.tracks.length?C.black:(i%2?C.black:C.panel);g2.globalAlpha=i>=S.tracks.length?.6:1;g2.fillRect(sx,rowTop(i),x1-sx,rowH(i));g2.globalAlpha=1}
   for(let b=Math.max(0,Math.floor(sx/BW));b<=Math.min(S.len,Math.ceil((sx+vw)/BW));b++){const x=b*BW,isBar=b%4===0;g2.strokeStyle=isBar?C.bar:C.line;g2.globalAlpha=isBar?1:.4;g2.lineWidth=isBar?1.5:1;g2.beginPath();g2.moveTo(x+.5,0);g2.lineTo(x+.5,H);g2.stroke()}
-  g2.globalAlpha=1;g2.lineWidth=1;g2.strokeStyle=C.line;for(let i=0;i<S.tracks.length+S.autotr.length;i++){g2.beginPath();g2.moveTo(sx,(i+1)*SRH-.5);g2.lineTo(x1,(i+1)*SRH-.5);g2.stroke()}
+  g2.globalAlpha=1;g2.lineWidth=1;g2.strokeStyle=C.line;for(let i=0;i<rowCount();i++){const yb=rowTop(i+1)-.5;g2.beginPath();g2.moveTo(sx,yb);g2.lineTo(x1,yb);g2.stroke()}
   const P=new Map(S.patterns.map(p=>[p.id,p]));
-  for(const q of S.place){const p=P.get(q.pid);if(!p)continue;const x=q.s*BW,w=qpx(q),rw=q.l*BW,y=q.ti*SRH+3,h=SRH-6;if(x>sx+vw||x+Math.max(w,rw)<sx)continue;
+  for(const q of S.place){const p=P.get(q.pid);if(!p)continue;const x=q.s*BW,w=qpx(q),rw=q.l*BW,y=rowTop(q.ti)+3,h=rowH(q.ti)-6;if(x>sx+vw||x+Math.max(w,rw)<sx)continue;
     // LMMS風パターンブロック：軽いグラデーション、上端ハイライト、暗い外枠。
     g2.globalAlpha=.96;
     const patGrad=g2.createLinearGradient(0,y,0,y+h);patGrad.addColorStop(0,p.color);patGrad.addColorStop(1,'#1b1f22');
@@ -1032,23 +1037,21 @@ function drawSong(){
     if(rw<w-1){g2.fillStyle='rgba(0,0,0,.5)';g2.fillRect(x+rw,y,w-rw,h);g2.fillStyle='rgba(255,255,255,.7)';g2.fillRect(x+rw-1,y,2,h)} // 表示幅より短い再生範囲: 範囲外(再生されない部分)を暗く
     g2.restore();
     if(rw>w+1){g2.strokeStyle=p.color;g2.lineWidth=2;g2.setLineDash([5,3]);g2.beginPath();g2.moveTo(x+w,y+h/2);g2.lineTo(x+rw,y+h/2);g2.stroke();g2.setLineDash([]);g2.lineWidth=1;g2.fillStyle=p.color;g2.fillRect(x+rw-2,y+2,3,h-4)} // 表示幅より長い再生範囲: 破線で再生される範囲を示す
-    const sel=sSel===q,ed=EP===p;g2.strokeStyle=sel?'#f0f3f5':'rgba(0,0,0,.72)';g2.lineWidth=sel?2:1;g2.strokeRect(x+.5,y+.5,w-1,h-1);g2.lineWidth=1;
+    const sel=sSel===q||(sSels.has(q)&&sSels.has(sSel)),ed=EP===p;g2.strokeStyle=sel?'#f0f3f5':'rgba(0,0,0,.72)';g2.lineWidth=sel?2:1;g2.strokeRect(x+.5,y+.5,w-1,h-1);g2.lineWidth=1;
     if(w>8&&h>8){g2.strokeStyle='rgba(255,255,255,.28)';g2.beginPath();g2.moveTo(x+1,y+1.5);g2.lineTo(x+w-2,y+1.5);g2.stroke()}
     g2.save();g2.beginPath();g2.rect(x,y,w,h);g2.clip();g2.fillStyle='#fff';g2.font='bold 11px system-ui';g2.shadowColor='rgba(0,0,0,.6)';g2.shadowBlur=2;g2.fillText(fitText(g2,(ed?'✎ ':'')+p.name,Math.max(8,w-18)),Math.max(x,sx)+5,y+11);g2.restore();
     if(RANGEMODE){g2.fillStyle='#e0902d';g2.fillRect(x+rw-3,y-2,6,h+4);g2.fillStyle='#fff';g2.fillRect(x+rw-1,y+4,2,h-8)} // 再生範囲の取っ手(オレンジ)
     else if(sel){g2.fillStyle='rgba(255,255,255,.85)';g2.fillRect(x+w-6,y+4,2,h-8);g2.fillRect(x+w-10,y+4,2,h-8)}} // 表示幅の取っ手(右端)
   drawAutoBlocks(g2,C,sx,vw);
   g2.fillStyle='#e5484d';g2.fillRect(playBeat*BW,0,2,H);
+  if(sband){const bx=Math.min(sband.x0,sband.x1),by=Math.min(sband.y0,sband.y1),bw=Math.abs(sband.x1-sband.x0),bh=Math.abs(sband.y1-sband.y0);g2.fillStyle='rgba(23,121,59,.22)';g2.fillRect(bx,by,bw,bh);g2.strokeStyle='#0bd556';g2.lineWidth=1;g2.setLineDash([4,3]);g2.strokeRect(bx+.5,by+.5,bw,bh);g2.setLineDash([])}
   g2.restore();
   g2.fillStyle=C.panel;g2.fillRect(0,0,vw,RULER);g2.strokeStyle=C.line;g2.beginPath();g2.moveTo(0,RULER-.5);g2.lineTo(vw,RULER-.5);g2.stroke();
-  for(let bar=b0;bar<=b1;bar++){const x=bar*4*BW-sx;g2.strokeStyle=C.bar;g2.lineWidth=2;g2.beginPath();g2.moveTo(x+.5,0);g2.lineTo(x+.5,RULER);g2.stroke();g2.lineWidth=1;if(bar<nb){g2.fillStyle=C.fg;g2.font='bold 11px system-ui';g2.fillText(String(bar+1),x+5,15)}}
+  // 拍の目盛り(短い線)と小節線・小節番号。ズームアウト時は番号を間引く
+  g2.lineWidth=1;if(BW>=10){g2.strokeStyle=C.mut;g2.globalAlpha=.55;for(let b=Math.max(0,Math.floor(sx/BW));b<=Math.min(S.len,Math.ceil((sx+vw)/BW));b++){if(b%4===0)continue;const x=Math.round(b*BW-sx)+.5;g2.beginPath();g2.moveTo(x,RULER-(BW>=24?7:4));g2.lineTo(x,RULER-1);g2.stroke()}g2.globalAlpha=1}
+  const kEvery=Math.max(1,Math.ceil(30/(BW*4)));
+  for(let bar=b0;bar<=b1;bar++){const x=bar*4*BW-sx;g2.strokeStyle=C.bar;g2.lineWidth=2;g2.beginPath();g2.moveTo(x+.5,0);g2.lineTo(x+.5,RULER);g2.stroke();g2.lineWidth=1;if(bar<nb&&bar%kEvery===0){g2.fillStyle=C.fg;g2.font='bold 11px system-ui';g2.fillText(String(bar+1),x+5,15)}}
   const px=playBeat*BW-sx;if(px>=0&&px<=vw){g2.fillStyle='#e5484d';g2.beginPath();g2.moveTo(px-5,0);g2.lineTo(px+5,0);g2.lineTo(px,8);g2.fill()}
-  S.tracks.forEach((t,i)=>{const y=i*SRH+RULER-sy;if(y+SRH<RULER||y>vh)return;g2.fillStyle=C.panel;g2.globalAlpha=.98;g2.fillRect(0,y+3,112,SRH-6);g2.globalAlpha=1;g2.fillStyle=t.color||'#17793b';g2.fillRect(0,y+3,4,SRH-6);
-    /* LMMS風のピンクSF2プラグインタイル */
-    const ix=9,iy=y+Math.max(5,(SRH-22)/2);g2.fillStyle='#d96cb7';g2.fillRect(ix,iy,27,22);g2.strokeStyle='#f4b7e3';g2.lineWidth=1;g2.strokeRect(ix+.5,iy+.5,26,21);g2.fillStyle='#fff';g2.font='bold 9px system-ui';g2.textAlign='center';g2.fillText('SF2',ix+13.5,iy+14);g2.textAlign='left';
-    g2.save();g2.beginPath();g2.rect(41,y,67,SRH);g2.clip();g2.fillStyle=C.fg;g2.font='bold 11px system-ui';g2.fillText(fitText(g2,t.name,62),42,y+SRH/2+4);g2.restore()});
-  S.autotr.forEach((r,i)=>{const y=(S.tracks.length+i)*SRH+RULER-sy;if(y+SRH<RULER||y>vh)return;const t=null;g2.fillStyle=C.panel;g2.globalAlpha=.98;g2.fillRect(0,y+3,112,SRH-6);g2.globalAlpha=1;g2.fillStyle=C.mut;g2.fillRect(0,y+3,4,SRH-6);
-    g2.save();g2.beginPath();g2.rect(8,y,100,SRH);g2.clip();g2.fillStyle=C.fg;g2.font='bold 10px system-ui';g2.fillText('⟲ '+(r.name||'Auto'),9,y+SRH/2+4);g2.restore()});
   $('sgbar').querySelector('#pn').disabled=!(sSel||selA);
 }
 function setView(v){if(EMBED_AUTO&&v!=='auto')return;if(v===VIEW)return;syncBuf();svTop[VIEW]=roll.scrollTop;svLeft[VIEW]=roll.scrollLeft;VIEW=v;selSet.clear();selNote=null;drag=null;
@@ -1062,7 +1065,7 @@ const patOf=q=>q&&S.patterns.find(p=>p.id===q.pid);
 function syncSongBar(){const P=patOf(sSel),A=selA&&S.autos.find(x=>x.id===selA.aid);$('pn').value=P?P.name:A?A.name:'';$('pn').disabled=!(P||A);if(P)$('pc').value=P.color;else if(A)$('pc').value=A.color;if(typeof fillAkind==='function')fillAkind()}
 cv.addEventListener('pointerdown',e=>{if(VIEW!=='song')return;
   const rc=cv.getBoundingClientRect();if(e.clientY-rc.top<RULER){seekTo((e.clientX-rc.left+roll.scrollLeft)/BW);return}
-  const{x,y}=pt(e),ri=Math.floor(y/SRH);if(ri<0||ri>=S.tracks.length)return;cv.setPointerCapture(e.pointerId);
+  const{x,y}=pt(e),ri=rowAt(y);if(ri<0||ri>=S.tracks.length)return;cv.setPointerCapture(e.pointerId);
   let h=null,hm=null;const hz=e.pointerType==='touch'?24:12;
   if(RANGEMODE){for(let i=S.place.length-1;i>=0;i--){const q=S.place[i];if(q.ti===ri&&Math.abs(x-(q.s+q.l)*BW)<=hz){h=q;hm='range';break}}}
   if(!h)h=sgHit(x,ri);
@@ -1072,11 +1075,11 @@ cv.addEventListener('pointerdown',e=>{if(VIEW!=='song')return;
     const q={id:uid(),pid:P.id,ti:ri,s,l:P.len,w:Math.min(P.len,DEFW)};S.place.push(q);sSel=q;selA=null;fitSong();dirty();lastTap={pl:q,t:Date.now()}}
   if(sdrag&&e.pointerType==='touch'){const d0=sdrag;d0.lp=setTimeout(()=>{if(sdrag===d0&&!d0.moved){sdrag=null;openBlockMenu(e.clientX,e.clientY,d0.pl)}},550)} // 長押し=メニュー
   syncSongBar();draw()});
-cv.addEventListener('contextmenu',e=>{if(VIEW!=='song')return;e.preventDefault();const rc=cv.getBoundingClientRect();if(e.clientY-rc.top<RULER)return;const{x,y}=pt(e),q=sgHit(x,Math.floor(y/SRH));if(q)openBlockMenu(e.clientX,e.clientY,q)});
+cv.addEventListener('contextmenu',e=>{if(VIEW!=='song')return;e.preventDefault();const rc=cv.getBoundingClientRect();if(e.clientY-rc.top<RULER)return;const{x,y}=pt(e),q=sgHit(x,rowAt(y));if(q)openBlockMenu(e.clientX,e.clientY,q)});
 cv.addEventListener('pointermove',e=>{if(VIEW!=='song'||!sdrag)return;const{x,y}=pt(e),q=sdrag.pl;
   if(!sdrag.moved&&Math.hypot(e.clientX-sdrag.cx,e.clientY-sdrag.cy)<8)return;clearTimeout(sdrag.lp);
   if(!sdrag.moved){sdrag.moved=true;undo.push(sdrag.before);if(undo.length>100)undo.shift();redo=[]}edgeScroll(e);
-  if(sdrag.mode==='move'){q.s=Math.max(0,Math.min(MAXBARS*4-q.l,sgSnap(x/BW-sdrag.ox)));q.ti=Math.max(0,Math.min(S.tracks.length-1,Math.floor(y/SRH)))}   // 配置位置だけ
+  if(sdrag.mode==='move'){q.s=Math.max(0,Math.min(MAXBARS*4-q.l,sgSnap(x/BW-sdrag.ox)));q.ti=Math.max(0,Math.min(S.tracks.length-1,rowAt(y)))}   // 配置位置だけ
   else if(sdrag.mode==='range'){q.l=Math.max(Math.max(.25,sgG()),Math.min(MAXBARS*4-q.s,sgSnap(x/BW-q.s)));NC=null}                                  // 再生範囲だけ
   else{const width=Math.max(Math.max(.5,sgG()),Math.min(Math.max(.5,S.len-q.s),sgSnap(x/BW-q.s)));q.w=width;q.l=Math.max(.25,Math.min(MAXBARS*4-q.s,width));NC=null} // 右端ドラッグでブロック幅と実際の再生範囲を同時に変更
   fitSong();draw()});
@@ -1259,7 +1262,7 @@ function openAuto(q){const a=S.autos.find(x=>x.id===q.aid);if(!a)return;if(windo
   EA=a;EQ=q;eaId=a.id;eqId=q.id;asel=new Set();AVZ={lo:0,hi:1};svTop.auto=0;if(a.target&&!autoDesc(a.target))$('st').textContent='⚠ このクリップの接続先が見つかりません(トラック/エフェクトが削除された可能性)。接続先を選び直してください';
   if(VIEW==='auto'){roll.scrollLeft=0;draw()}else{setView('auto');roll.scrollLeft=0;draw()}}
 function drawAutoBlocks(g2,C,sx,vw){const P0=S.tracks.length;
-  for(const q of S.aplace){const a=S.autos.find(x=>x.id===q.aid),ri=rowIdx(q);if(!a||ri<0)continue;const x=q.s*BW,w=Math.max(3,q.l*BW),y=(P0+ri)*SRH+3,h=SRH-6;if(x>sx+vw||x+w<sx)continue;
+  for(const q of S.aplace){const a=S.autos.find(x=>x.id===q.aid),ri=rowIdx(q);if(!a||ri<0)continue;const x=q.s*BW,w=Math.max(3,q.l*BW),y=rowTop(P0+ri)+3,h=rowH(P0+ri)-6;if(x>sx+vw||x+w<sx)continue;
     const ok=!a.target||!!autoDesc(a.target),sl=selAs.has(q);g2.globalAlpha=.9;g2.fillStyle='#262b30';g2.fillRect(x,y,w,h);g2.globalAlpha=sl?.4:.28;g2.fillStyle=a.color;g2.fillRect(x,y,w,h);g2.globalAlpha=1;
     g2.save();g2.beginPath();g2.rect(x,y,w,h);g2.clip();g2.strokeStyle=a.color;g2.lineWidth=1.5;g2.beginPath();let f=true;const x0=Math.max(x,sx),x1=Math.min(x+w,sx+vw);
     for(let px=x0;px<=x1+2;px+=2){const v=autoVal(a,Math.min(a.len,(px-x)/BW)),yy=y+h-2-v*(h-4);if(f){g2.moveTo(px,yy);f=false}else g2.lineTo(px,yy)}g2.stroke();
@@ -1269,7 +1272,7 @@ function drawAutoBlocks(g2,C,sx,vw){const P0=S.tracks.length;
     g2.lineWidth=sl?2:1;g2.strokeStyle=!ok?'#e5484d':sl?'#f0f3f5':'rgba(0,0,0,.7)';if(!ok)g2.setLineDash([4,3]);g2.strokeRect(x+.5,y+.5,w-1,h-1);g2.setLineDash([]);g2.lineWidth=1;
     if(sl){g2.fillStyle='rgba(255,255,255,.85)';g2.fillRect(x+w-6,y+4,2,h-8)}}}
 cv.addEventListener('pointerdown',e=>{if(VIEW!=='song')return;const rc=cv.getBoundingClientRect();if(e.clientY-rc.top<RULER)return;
-  const{x,y}=pt(e),ri=Math.floor(y/SRH)-S.tracks.length;if(ri<0||ri>=S.autotr.length)return;cv.setPointerCapture(e.pointerId);const row=S.autotr[ri];let h=null;
+  const{x,y}=pt(e),ri=rowAt(y)-S.tracks.length;if(ri<0||ri>=S.autotr.length)return;cv.setPointerCapture(e.pointerId);const row=S.autotr[ri];let h=null;
   for(let i=S.aplace.length-1;i>=0;i--){const q=S.aplace[i];if(q.tr===row.id&&x>=q.s*BW&&x<=(q.s+q.l)*BW){h=q;break}}
   if(h){const now=Date.now(),mod=e.shiftKey||e.ctrlKey||e.metaKey;
     if(!mod&&lastTapA.q===h&&now-lastTapA.t<400){lastTapA={q:null,t:0};ad=null;OPENEV=e;openAuto(h);return}
@@ -1283,12 +1286,12 @@ cv.addEventListener('pointermove',e=>{if(VIEW!=='song'||!ad)return;const{x,y}=pt
   if(!ad.moved){ad.moved=true;undo.push(ad.before);if(undo.length>100)undo.shift();redo=[]}edgeScroll(e);
   if(ad.mode==='move'){const g0=ad.g.find(o=>o.q===q);let ds=sgSnap(x/BW-ad.ox)-g0.s;
     ds=Math.max(ds,-Math.min(...ad.g.map(o=>o.s)));ds=Math.min(ds,Math.min(...ad.g.map(o=>MAXBARS*4-o.q.l-o.s)));
-    let dr=Math.floor(y/SRH)-S.tracks.length-ad.ri0;dr=Math.max(dr,-Math.min(...ad.g.map(o=>o.ri)));dr=Math.min(dr,Math.min(...ad.g.map(o=>S.autotr.length-1-o.ri)));
+    let dr=rowAt(y)-S.tracks.length-ad.ri0;dr=Math.max(dr,-Math.min(...ad.g.map(o=>o.ri)));dr=Math.min(dr,Math.min(...ad.g.map(o=>S.autotr.length-1-o.ri)));
     for(const o of ad.g){o.q.s=o.s+ds;o.q.tr=S.autotr[o.ri+dr].id}}
   else q.l=Math.max(Math.max(.25,sgG()),Math.min(MAXBARS*4-q.s,sgSnap(x/BW-q.s)));
   dirty();fitSong();draw()});
 const adEnd=()=>{if(!ad)return;const m=ad.moved;ad=null;if(m)dirty();draw()};cv.addEventListener('pointerup',adEnd);cv.addEventListener('pointercancel',adEnd);
-cv.addEventListener('contextmenu',e=>{if(VIEW!=='song')return;const rc=cv.getBoundingClientRect();if(e.clientY-rc.top<RULER)return;const{x,y}=pt(e),ri=Math.floor(y/SRH)-S.tracks.length;if(ri<0||ri>=S.autotr.length)return;e.preventDefault();
+cv.addEventListener('contextmenu',e=>{if(VIEW!=='song')return;const rc=cv.getBoundingClientRect();if(e.clientY-rc.top<RULER)return;const{x,y}=pt(e),ri=rowAt(y)-S.tracks.length;if(ri<0||ri>=S.autotr.length)return;e.preventDefault();
   for(let i=S.aplace.length-1;i>=0;i--){const q=S.aplace[i];if(q.tr===S.autotr[ri].id&&x>=q.s*BW&&x<=(q.s+q.l)*BW){if(!selAs.has(q))selOne(q);selA=q;sSel=null;syncSongBar();draw();return}}});
 const selQ=()=>S.aplace.filter(q=>selAs.has(q));
 function delAblk(){const L=selQ();if(!L.length)return;pushUndo();const aids=new Set(L.map(q=>q.aid));S.aplace=S.aplace.filter(q=>!selAs.has(q));if(EQ&&L.includes(EQ)){EQ=null;eqId=null}selOne(null);
@@ -2084,7 +2087,7 @@ function tipPos(r,tw,th,vw,vh,m){m=m==null?6:m;let top=r.bottom+8,up=false;if(to
    l = 再生範囲(拍)   … 再生エンジン(songNotes)が参照する唯一の長さ。パターンより長ければ繰り返し、短ければ範囲外は鳴らさない(音符データは消さない)
    w = 表示幅(拍)     … 見た目だけ。再生・書き出しには一切使わない。拍単位なので、ズームしても位置・再生範囲との関係は変わらない */
 const DEFW=4;let RANGEMODE=false;
-const qw=q=>(q.w>0?q.w:q.l),qpx=q=>Math.max(qw(q)*BW,32),defW=q=>Math.min(q.l,DEFW);
+const qw=q=>(q.w>0?q.w:q.l),qpx=q=>Math.max(qw(q)*BW,12),defW=q=>Math.min(q.l,DEFW);
 const sgG=()=>{const g=+$('sgSnap').value;return g>0?g:0};
 function sgSnap(v){const g=sgG();return g>0?Math.round(v/g)*g:Math.round(v*1000)/1000}
 function sgHit(x,ri){for(let i=S.place.length-1;i>=0;i--){const q=S.place[i];if(q.ti===ri&&x>=q.s*BW&&x<=q.s*BW+qpx(q))return q}return null}
@@ -2095,9 +2098,9 @@ function sbDo(q,kind){if(!q)return;pushUndo();const width=kind==='fit'?Math.max(
 // ---- コンテキストメニュー(右クリック / 長押し)。位置決めとキー操作は共通プルダウン(DD)の関数を再利用 ----
 let ctxM=null;function ctxClose(){if(ctxM){ctxM.el.remove();ctxM=null}}
 function menuAction(k,q){if(!S.place.includes(q))return;sSel=q;selA=null;
-  if(k==='w')sbOpen(q,'w');else if(k==='r'){setRangeMode(true);sbOpen(q,'r')}else if(k==='fit'||k==='reset')sbDo(q,k);else if(k==='open')openPattern(q);else if(k==='dup')dupPl(false);else if(k==='del')delPl();else if(k==='cp')blkCopy(q);else if(k==='cut'){if(blkCopy(q))delPl()}else if(k==='pst')blkPaste(false);else if(k==='pstI')blkPaste(true);else if(k==='rn')blkRename(q);else if(k==='cl')blkColor(q)}
+  if(k==='w')sbOpen(q,'w');else if(k==='r'){setRangeMode(true);sbOpen(q,'r')}else if(k==='fit'||k==='reset')sbDo(q,k);else if(k==='open')openPattern(q);else if(k==='dup')dupPl(false);else if(k==='del')delPl()}
 function openBlockMenu(cx,cy,q){ctxClose();sSel=q;selA=null;syncSongBar();draw();
-  const items=[['open','ピアノロールで開く'],['rn','名前を変更…'],['cl','色を変更…'],['cp','コピー  (Ctrl+C)'],['cut','切り取り  (Ctrl+X)'],['pst','貼り付け(同じパターンを参照)  (Ctrl+V)'],['pstI','貼り付け(独立コピー)  (Ctrl+Shift+V)'],['dup','複製(同じパターンを参照)'],['w','ブロック長を変更…'],['r','再生範囲を編集…'],['fit','表示幅を再生範囲に合わせる'],['reset','表示幅を初期値に戻す'],['del','ブロックを削除']];
+  const items=[['w','ブロック長を変更…'],['r','再生範囲を編集…'],['fit','表示幅を再生範囲に合わせる'],['reset','表示幅を初期値に戻す'],['open','ピアノロールで開く'],['dup','複製(同じパターンを参照)'],['del','ブロックを削除']];
   const el=document.createElement('div');el.className='ddp ctxm';el.setAttribute('role','menu');el.setAttribute('aria-label','ブロックのメニュー');
   el.innerHTML='<div class="ddl" tabindex="-1">'+items.map((it,i)=>'<div class="ddi" role="menuitem" tabindex="-1" data-i="'+i+'"><span class="dt">'+it[1]+'</span></div>').join('')+'</div>';document.body.appendChild(el);
   const pw=Math.max(el.offsetWidth,200),pos=DD.place({left:cx,top:cy,right:cx,bottom:cy,width:0},innerWidth,innerHeight,pw,el.offsetHeight,8);el.style.left=pos.left+'px';el.style.top=pos.top+'px';el.style.maxHeight=pos.h+'px';el.style.minWidth=pw+'px';
@@ -2162,11 +2165,7 @@ try{if('BroadcastChannel' in window)__bgmChannel=new BroadcastChannel('bgm-notpc
 window.__BGMGetProjectSnapshot=()=>snap();
 let __bgmSeqN=0;const __seenSeq=new Map();
 const __fresh=(sender,seq)=>{if(typeof sender!=='string'||typeof seq!=='number')return true;if((__seenSeq.get(sender)||0)>=seq)return false;__seenSeq.set(sender,seq);return true};
-/* 選択中トラックは各ウィンドウ(ソング/ピアノロール)で別々の変数だったため、音源が食い違っていた。送信データに選択トラックIDを載せて揃える */
-const __withSel=str=>{try{const t=S.tracks[sel];return t&&t.id?str.slice(0,-1)+',"__sel":'+JSON.stringify(t.id)+'}':str}catch(_){return str}};
-var __lastSelId=null;
-function selShareCheck(){try{const t=S&&S.tracks&&S.tracks[sel],id=t&&t.id;if(id&&id!==__lastSelId){__lastSelId=id;if(!__bgmApplyingShared&&window.__BGMQueueSharedSync)window.__BGMQueueSharedSync()}}catch(_){}}
-const __bgmPost=()=>{const data=__withSel(snap()),seq=++__bgmSeqN;
+const __bgmPost=()=>{const data=snap(),seq=++__bgmSeqN;
   try{__bgmChannel&&__bgmChannel.postMessage({type:'project',sender:__bgmSyncId,seq,data})}catch(_){}
   // file:// などBroadcastChannelが使えない環境でも専用ウィンドウと同期できるよう、postMessageでも送る
   if(EMBED_AUTO)autoPostParent('project',{data,seq,sender:__bgmSyncId});else window.__BGMOnProjectPost?.(data,seq,__bgmSyncId)};
@@ -2178,9 +2177,9 @@ window.__BGMFlushSharedSync=()=>{clearTimeout(__bgmSyncTimer);__bgmSyncTimer=nul
 let __pendingShared=null;
 function __applyShared(data){
   try{
-    __bgmApplyingShared=true;S=JSON.parse(data);const __ss=S.__sel;delete S.__sel;normS();if(!S.projectName)S.projectName='BGM';
-    sel=Math.max(0,Math.min(sel,S.tracks.length-1));if(__ss){const k=S.tracks.findIndex(t=>t.id===__ss);if(k>=0)sel=k}selNote=null;selSet.clear();
-    EP=S.patterns.find(p=>p.id===S.edit)||S.patterns[0]||null;bufObj=null;NC=null;AC=null;autoResyncSoon();try{__lastSelId=S.tracks[sel].id}catch(_){}
+    __bgmApplyingShared=true;S=JSON.parse(data);normS();if(!S.projectName)S.projectName='BGM';
+    sel=Math.max(0,Math.min(sel,S.tracks.length-1));selNote=null;selSet.clear();
+    EP=S.patterns.find(p=>p.id===S.edit)||S.patterns[0]||null;bufObj=null;NC=null;AC=null;autoResyncSoon();
     $('bpm').value=S.bpm;updateTabTitle();renderTracks();
     if(EMBED_AUTO&&typeof autoReapplySel==='function')autoReapplySel();
     draw();
@@ -2277,80 +2276,34 @@ if(EMBED_AUTO){
       if(!dt&&!dV)return;pushUndo();for(const p of L){p.t=Math.round((p.t+dt)*1e5)/1e5;p.v=clampV(p.v+dV)}sortPts();dirty();draw()}
   });
 }
-/* ---- Song Editor: アレンジ領域の行に揃えた左トラックヘッダー(段階1) ----
-   既存のデータ(S.tracks / S.autotr / 再生エンジン)は変更せず、同じ状態を読み書きするUIを追加。表示はソング画面のみ。 */
-var SGH_ICONS=['♪','🎹','🎸','🥁','🎻','🎺','🎷','🎤','🔊','🌊','⭐','🔔'];
-var sghBusy=false,sghPopEl=null;
-const sghInv=()=>{const T=$('sghT');if(T)T.dataset.sig=''};
-function sghPopClose(){if(sghPopEl){sghPopEl.remove();sghPopEl=null}}
-function sghPop(anchor,items,cls){sghPopClose();const el=document.createElement('div');el.className='sghpop '+(cls||'');el.setAttribute('role','menu');
-  items.forEach(it=>{const b=document.createElement('button');b.type='button';b.setAttribute('role','menuitem');b.textContent=it[0];if(it[2])b.disabled=true;b.onclick=()=>{sghPopClose();it[1]()};el.appendChild(b)});
-  document.body.appendChild(el);const r=anchor.getBoundingClientRect();let l=r.left,tp=r.bottom+2;if(l+el.offsetWidth>innerWidth-4)l=innerWidth-el.offsetWidth-4;if(tp+el.offsetHeight>innerHeight-4)tp=Math.max(4,r.top-el.offsetHeight-2);
-  el.style.left=Math.max(4,l)+'px';el.style.top=tp+'px';sghPopEl=el;const f=el.querySelector('button:not([disabled])');if(f)f.focus({preventScroll:true})}
-document.addEventListener('pointerdown',e=>{if(sghPopEl&&!sghPopEl.contains(e.target))sghPopClose()},true);
-addEventListener('keydown',e=>{if(sghPopEl&&e.key==='Escape'){e.stopImmediatePropagation();sghPopClose()}},true);
-/* トラック複製: トラック設定(音色・SF2・エフェクト)と、そのトラック上のブロックを独立したパターンとしてコピー。オートメーションクリップは複製しない */
-function dupTrack(i){const t=S.tracks[i];if(!t)return;pushUndo();syncBuf();bufObj=null;
-  const c=JSON.parse(JSON.stringify(t,(k,v)=>k==='notes'?undefined:v));c.id=uid();c.name=t.name+' (コピー)';c.notes=[];(c.fx||[]).forEach(e=>{e.id=uid()});
-  S.tracks.splice(i+1,0,c);S.place.forEach(q=>{if(q.ti>i)q.ti++});
-  const P=new Map(S.patterns.map(p=>[p.id,p])),M=new Map();
-  for(const q of S.place.filter(q=>q.ti===i)){const p=P.get(q.pid);if(!p)continue;let np=M.get(p.id);
-    if(!np){np={id:uid(),name:p.name+' (コピー)',color:p.color,len:p.len,notes:p.notes.map(n=>({p:n.p,s:n.s,d:n.d,v:n.v})),automation:JSON.parse(JSON.stringify(p.automation||{kind:'vol',points:[]}))};M.set(p.id,np);S.patterns.push(np)}
-    S.place.push({id:uid(),pid:np.id,ti:i+1,s:q.s,l:q.l,w:qw(q)})}
-  sel=i+1;syncBuf();renderTracks();draw();dirty();syncSongBar();$('st').textContent='トラック「'+t.name+'」を複製しました(ブロックは独立したパターンとしてコピー)'}
-function sghBuild(){const H=$('sgh'),T=$('sghT'),f=document.activeElement,fk=f&&H.contains(f)&&f.dataset.k&&f.closest('.sgr')?f.dataset.k+'|'+f.closest('.sgr').dataset.i:null;T.textContent='';
-  const mk=(tag,cls,props,k)=>{const e=document.createElement(tag);e.className=cls;Object.assign(e,props||{});if(k)e.dataset.k=k;return e};
-  S.tracks.forEach((t,i)=>{t.id=t.id||uid();const r=mk('div','sgr'+(i===sel?' sel':'')+(i%2?' odd':''));r.dataset.i=i;r.style.height=SRH+'px';r.style.setProperty('--tc',t.color||'#2f6fed');
-    const ic=mk('button','sgi',{type:'button',title:'アイコンを変更',textContent:t.icon||'♪'},'icon');ic.setAttribute('aria-label','アイコンを変更');
-    ic.onclick=()=>sghPop(ic,SGH_ICONS.map(e=>[e,()=>{pushUndo();t.icon=e===SGH_ICONS[0]?undefined:e;dirty();sghInv();renderTracks();draw()}]),'ico');
-    const nm=mk('input','sgn',{value:t.name,title:'トラック名',type:'text'},'name');nm.setAttribute('aria-label','トラック名');
-    nm.onfocus=()=>{if(sel!==i){sel=i;renderTracks()}};nm.oninput=()=>{t.name=nm.value;dirty()};nm.onchange=()=>{t.name=nm.value.trim()||('Track '+(i+1));sghInv();renderTracks();draw()};
-    nm.onkeydown=e=>{e.stopPropagation();if(e.key==='Enter')nm.blur()};
-    const bm=mk('button','sgb'+(t.mute?' on':''),{type:'button',textContent:'M',title:'ミュート'},'mute'),bs=mk('button','sgb'+(t.solo?' on':''),{type:'button',textContent:'S',title:'ソロ'},'solo');
-    bm.onclick=()=>{t.mute=!t.mute;dirty();sghInv();renderTracks();draw()};bs.onclick=()=>{t.solo=!t.solo;dirty();sghInv();renderTracks();draw()};
-    const vo=mk('input','sgv',{type:'range',min:0,max:1,step:.01,value:t.vol,title:'音量(右クリックでオートメーション)'},'vol');vo.setAttribute('aria-label','音量');
-    vo.oninput=()=>{t.vol=+vo.value;if(ctx&&!AUTOLIVE.has('trk:'+t.id+':vol'))getCh(t).in.gain.value=t.vol;dirty()};vo.onchange=()=>{sghInv();renderTracks()};markAuto(vo,'trk:'+t.id+':vol');
-    const pa=mk('input','sgp',{type:'range',min:-1,max:1,step:.05,value:t.pan||0,title:'パン(ダブルクリックで中央 / 右クリックでオートメーション)'},'pan');pa.setAttribute('aria-label','パン');
-    pa.oninput=()=>{t.pan=+pa.value;if(ctx&&!AUTOLIVE.has('trk:'+t.id+':pan'))getCh(t).pan.pan.value=t.pan;dirty()};pa.onchange=()=>{sghInv();renderTracks()};
-    pa.ondblclick=()=>{t.pan=0;pa.value=0;if(ctx&&!AUTOLIVE.has('trk:'+t.id+':pan'))getCh(t).pan.pan.value=0;dirty();sghInv();renderTracks()};markAuto(pa,'trk:'+t.id+':pan');
-    const mo=mk('button','sgm',{type:'button',textContent:'⋯',title:'トラックのメニュー'},'more');mo.setAttribute('aria-label','トラックのメニュー');
-    mo.onclick=()=>sghPop(mo,[['トラックを複製',()=>dupTrack(i)],['上へ移動',()=>{pushUndo();moveTrack(i,-1)},i===0],['下へ移動',()=>{pushUndo();moveTrack(i,1)},i===S.tracks.length-1],['アイコンを変更…',()=>sghPop(ic,SGH_ICONS.map(e=>[e,()=>{pushUndo();t.icon=e===SGH_ICONS[0]?undefined:e;dirty();sghInv();renderTracks();draw()}]),'ico')],['トラックを削除',()=>{const b=$('tl').querySelectorAll('.trk')[i];if(b){const x=b.querySelector('[data-a=del]');if(x)x.click()}}]]);
-    r.onclick=e=>{if(e.target.closest('input,button'))return;sel=i;sghInv();renderTracks();draw()};
-    r.append(ic,nm,bm,bs,vo,pa,mo);T.appendChild(r)});
-  S.autotr.forEach((a,j)=>{const r=mk('div','sgr au'+((S.tracks.length+j)%2?' odd':''));r.style.height=SRH+'px';r.dataset.i='a'+j;
-    const ic=mk('span','sgi',{textContent:'〜',title:'オートメーショントラック'});const nm=mk('input','sgn',{value:a.name,type:'text',title:'オートメーショントラック名'},'name');nm.setAttribute('aria-label','オートメーショントラック名');
-    nm.oninput=()=>{a.name=nm.value;dirty()};nm.onchange=()=>{a.name=nm.value.trim()||('Auto '+(j+1));sghInv();draw()};nm.onkeydown=e=>{e.stopPropagation();if(e.key==='Enter')nm.blur()};
-    r.append(ic,nm);T.appendChild(r)});
-  if(fk){const [k,ri]=fk.split('|'),el=T.querySelector('.sgr[data-i="'+ri+'"] [data-k="'+k+'"]');if(el&&k!=='name')el.focus({preventScroll:true})}}
-function sghSync(){selShareCheck();const H=$('sgh');if(!H)return;if(VIEW!=='song'||EMBED_AUTO){H.style.display='none';return}
-  H.style.display='flex';const T=$('sghT');T.style.transform='translateY('+(-roll.scrollTop)+'px)';
-  const sig=JSON.stringify([SRH,sel,S.tracks.map(t=>[t.id,t.name,t.color,t.icon,t.mute,t.solo,t.vol,t.pan]),S.autotr.map(a=>[a.id,a.name])]);
-  if(sig===T.dataset.sig)return;const f=document.activeElement;if(sghBusy||(f&&H.contains(f)&&f.tagName==='INPUT'&&f.type==='text'))return;
-  T.dataset.sig=sig;sghBuild()}
-(()=>{const H=$('sgh');if(!H)return;H.addEventListener('wheel',e=>{roll.scrollTop+=e.deltaY},{passive:true});
-  H.addEventListener('pointerdown',e=>{if(e.target.type==='range')sghBusy=true},true);
-  const end=()=>{if(sghBusy){sghBusy=false;sghInv();draw()}};addEventListener('pointerup',end);addEventListener('pointercancel',end)})();
-/* ---- Song Editor 段階2: パターンブロックのコピー/切り取り/貼り付け・名前変更・色変更 ----
-   既存の配置データ(S.place: {id,pid,ti,s,l,w})とパターン(S.patterns)の形式は変更しない。 */
-var blkClip=null,blkPref=false,__shiftDown=false;
-addEventListener('keydown',e=>{__shiftDown=e.shiftKey},true);addEventListener('keyup',e=>{__shiftDown=e.shiftKey},true);
-function blkCopy(q){const P=patOf(q);if(!P||!S.place.includes(q))return false;
-  blkClip={pid:P.id,l:q.l,w:qw(q),snap:{name:P.name,color:P.color,len:P.len,notes:P.notes.map(n=>({p:n.p,s:n.s,d:n.d,v:n.v})),automation:JSON.parse(JSON.stringify(P.automation||{kind:'vol',points:[]}))}};
-  blkPref=true;$('st').textContent='ブロック「'+P.name+'」をコピーしました(Ctrl+V: 同じパターンを参照 / Ctrl+Shift+V: 独立コピー)';return true}
-/* 貼り付け位置: ブロックを選択中ならその直後(同じトラック)、未選択ならプレイヘッド位置(選択中トラック) */
-function blkPaste(indep){const C=blkClip;if(!C){$('st').textContent='コピーしたブロックがありません';return}
-  const hasSel=sSel&&S.place.includes(sSel),ti=hasSel&&S.tracks[sSel.ti]?sSel.ti:(S.tracks[sel]?sel:0),s=hasSel?sSel.s+sSel.l:Math.max(0,Math.round(playBeat/SNAP)*SNAP);
-  if(s+C.l>MAXBARS*4){alert('最大小節数を超えるため貼り付けできません');return}
-  pushUndo();let pid=C.pid;const ex=S.patterns.some(p=>p.id===C.pid),mkP=!indep&&ex?null:C.snap;
-  if(mkP){const P2={id:uid(),name:mkP.name+(ex?' (コピー)':''),color:mkP.color,len:mkP.len,notes:mkP.notes.map(n=>({p:n.p,s:n.s,d:n.d,v:n.v})),automation:JSON.parse(JSON.stringify(mkP.automation))};S.patterns.push(P2);pid=P2.id}
-  const q={id:uid(),pid,ti,s,l:C.l,w:C.w};S.place.push(q);sSel=q;selA=null;fitSong();dirty();draw();syncSongBar();
-  $('st').textContent=mkP?'ブロックを独立したパターンとして貼り付けました':'同じパターンを参照するブロックを貼り付けました'}
-function blkRename(q){const P=patOf(q);if(!P)return;const n=prompt('パターン名(同じパターンを参照する全ブロックの名前が変わります)',P.name);if(n==null||!n.trim()||n.trim()===P.name)return;pushUndo();P.name=n.trim();dirty();syncSongBar();draw()}
-function blkColor(q){if(!patOf(q))return;sSel=q;selA=null;syncSongBar();const c=$('pc');if(c&&!c.disabled)c.click()}
-const _cs2=copySel;copySel=function(cut){if(VIEW==='song'){if(selA){blkPref=false;return _cs2(cut)}if(sSel&&S.place.includes(sSel)){if(blkCopy(sSel)&&cut)delPl();return}}return _cs2(cut)};
-const _ps2=pasteSel;pasteSel=function(){if(VIEW==='song'&&blkClip&&(blkPref||!(selA&&ACBUF))){blkPaste(__shiftDown);return}return _ps2()};
 loadDB().then(()=>{
   $('roll').scrollTop=(HI-1-76)*RH;loadAudioFiles();libInit();
   if(EMBED_AUTO){setView('auto');$('abar').style.display='flex';autoEmbedInit()}
-  if(__bgmChannel&&!EMBED_AUTO){setTimeout(()=>{try{__bgmChannel.postMessage({type:'project',sender:__bgmSyncId,data:__withSel(snap())})}catch(_){}},120)}
+  if(__bgmChannel&&!EMBED_AUTO){setTimeout(()=>{try{__bgmChannel.postMessage({type:'project',sender:__bgmSyncId,data:snap()})}catch(_){}},120)}
 });;
+
+/* ===== 選択トラックの共有 (親画面 / Piano Roll / 他ウィンドウ) =====
+   Piano Roll は別インスタンスで `sel` を個別に持つため、Browser で選んだトラックと
+   打ち込み(試聴音・音符の追加先)のトラックが食い違っていた。変更をBroadcastChannelで共有する。 */
+(function(){
+  if(typeof BroadcastChannel==='undefined'||EMBED_AUTO)return; // オートメーション専用窓はトラック選択を使わない
+  const ID=Math.random().toString(36).slice(2)+Date.now().toString(36),CH=new BroadcastChannel('bgm-track-select');
+  let last=sel,pending=null;
+  const apply=i=>{
+    if(!Number.isInteger(i)||i<0)return;
+    if(!S||!S.tracks||i>=S.tracks.length){pending=i;return} // トラック追加の同期が先に届かない場合は待つ
+    pending=null;if(i===sel){last=i;return}
+    sel=i;last=i;selNote=null;selSet.clear();
+    try{renderTracks()}catch(_){}
+    draw();
+  };
+  CH.onmessage=e=>{const m=e.data;if(!m||m.t!=='sel'||m.id===ID||!Number.isInteger(m.i)||m.i<0||m.i>9999)return;apply(m.i)};
+  const origDraw=draw;
+  draw=function(){
+    const r=origDraw.apply(this,arguments);
+    if(pending!==null&&S&&S.tracks&&pending<S.tracks.length){const i=pending;pending=null;apply(i)}
+    else if(sel!==last){last=sel;try{CH.postMessage({t:'sel',id:ID,i:sel})}catch(_){}}
+    return r;
+  };
+  setTimeout(()=>{try{CH.postMessage({t:'sel',id:ID,i:sel})}catch(_){}},400);
+})();

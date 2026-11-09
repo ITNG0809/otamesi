@@ -493,28 +493,45 @@ body.automation-embed #roll{background:#222423!important;scrollbar-color:#3a444d
 body.automation-embed #roll::-webkit-scrollbar{height:12px;width:12px;background:#1d1d25}
 body.automation-embed #roll::-webkit-scrollbar-thumb{background:#3a444d;border-radius:6px;border:2px solid #1d1d25}
 
-/* ===== Song Editor 左トラックヘッダー(アレンジ領域の行に揃える) ===== */
-#sgh{display:none;flex-direction:column;flex:0 0 auto;width:244px;background:var(--panel);border-right:1px solid var(--line);overflow:hidden;user-select:none;-webkit-user-select:none}
-#sghH{box-sizing:border-box;height:24px;flex:0 0 24px;padding:0 8px;display:flex;align-items:center;font-size:11px;color:var(--mut);border-bottom:1px solid var(--line);background:var(--panel)}
-#sghC{flex:1;overflow:hidden;position:relative}#sghT{will-change:transform}
-#sgh .sgr{box-sizing:border-box;display:flex;align-items:center;gap:3px;padding:0 4px 0 5px;border-bottom:1px solid var(--line);border-left:3px solid var(--tc,#2f6fed);background:var(--panel);overflow:hidden}
-#sgh .sgr.odd{background:var(--black)}
-#sgh .sgr.sel{background:color-mix(in srgb,var(--tc,#2f6fed) 22%,var(--panel))}
-#sgh .sgr.au{border-left-color:#7e5fe0;background:var(--black);opacity:.85}
-#sgh .sgi{flex:0 0 auto;width:20px;height:80%;min-height:0;padding:0;font-size:13px;line-height:1;display:inline-flex;align-items:center;justify-content:center;background:transparent;border:0;color:var(--fg);cursor:pointer}
-#sgh .sgn{flex:1 1 40px;min-width:36px;height:80%;min-height:0;padding:0 4px;font-size:12px;background:transparent;border:1px solid transparent;color:var(--fg);border-radius:3px}
-#sgh .sgn:focus{background:var(--bg);border-color:var(--bar)}
-#sgh .sgb,#sgh .sgm{flex:0 0 auto;min-width:0;width:20px;height:80%;min-height:0;padding:0;font-size:11px;line-height:1}
-#sgh .sgb.on{background:#17793b;color:#fff;border-color:#0d5a28}
-#sgh .sgv,#sgh .sgp{min-height:0;height:100%;margin:0;padding:0}
-#sgh .sgv{flex:0 0 42px;width:42px}#sgh .sgp{flex:0 0 34px;width:34px}
-#sgh .sgr.au .sgn{flex:1 1 auto}
-@media(max-width:900px){#sgh{width:190px}#sgh .sgp{display:none}}
-@media(pointer:coarse){#sgh .sgb,#sgh .sgm,#sgh .sgi{width:28px}#sgh .sgn{font-size:13px}}
-body.piano-embed #sgh,body.automation-embed #sgh{display:none!important}
-.sghpop{position:fixed;z-index:10000;display:flex;flex-direction:column;min-width:160px;padding:4px;background:#262b30;border:1px solid #14171a;border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.5)}
-.sghpop button{text-align:left;padding:7px 10px;min-height:32px;background:transparent;border:0;color:#d1d8e4;border-radius:4px;font-size:13px}
-.sghpop button:hover:not(:disabled),.sghpop button:focus-visible{background:#3c444e;outline:none}
-.sghpop button:disabled{opacity:.4}
-.sghpop.ico{display:grid;grid-template-columns:repeat(4,40px);min-width:0}
-.sghpop.ico button{text-align:center;font-size:18px;padding:4px}
+/* ===== Song Editor: トラックヘッダー / 複数選択 / ツールバー (LMMS 1.2 風) ===== */
+:root{--sgh-w:276px}
+#sgh{display:none;position:relative;flex:0 0 var(--sgh-w);width:var(--sgh-w);overflow:hidden;background:#2b3138;border-right:1px solid #14171a;user-select:none;-webkit-user-select:none;touch-action:pan-y}
+#rc.sg-hdr-on #sgh{display:block}
+#rc.sg-hdr-on #alw{margin-left:var(--sgh-w)}
+#sgh .sgh-corner{position:absolute;left:0;right:0;top:0;height:24px;box-sizing:border-box;display:flex;align-items:center;justify-content:flex-start;padding:0 5px;background:#3b424a;border-bottom:1px solid #14171a;z-index:2}
+#sgh .sgh-corner button{min-height:18px;height:18px;padding:0 8px;font-size:11px;line-height:1}
+#sgh .sgh-in{position:absolute;left:0;right:0;top:24px;will-change:transform}
+#sgh .sgh-row{position:absolute;left:0;right:0;box-sizing:border-box;display:flex;align-items:center;gap:3px;padding:2px 4px 2px 0;background:linear-gradient(#3e464f,#353c44);border-bottom:1px solid #14171a;color:#d1d8e4;font-size:11px;overflow:hidden}
+#sgh .sgh-row.sel{background:linear-gradient(#46505a,#3b434c);box-shadow:inset 0 0 0 1px #17793b}
+#sgh .sgh-row.muted .sgh-name{opacity:.55;text-decoration:line-through}
+#sgh .sgh-row.auto{background:linear-gradient(#34303f,#2c2936)}
+#sgh .sgh-grip{flex:0 0 7px;align-self:stretch;cursor:grab;touch-action:none;margin-right:1px}
+#sgh .sgh-grip.nogrip{cursor:default;background:#5a5470}
+#sgh .sgh-ic{flex:0 0 auto;min-width:26px;width:26px;height:22px;min-height:22px;padding:0;border-radius:2px;font-size:9px;font-weight:700;line-height:20px;text-align:center;color:#fff;border:1px solid #14171a;cursor:pointer}
+#sgh .sgh-ic.ic-sf{background:#d96cb7;border-color:#f4b7e3}
+#sgh .sgh-ic.ic-syn{background:#1f9a4d;border-color:#7fe3a3}
+#sgh .sgh-ic.ic-em{background:#4b535d;border-color:#6c7684;font-size:13px}
+#sgh .sgh-ic.ic-auto{background:#6b5aa0;border-color:#a99bd8;font-size:13px;cursor:default;display:inline-block}
+#sgh .sgh-fold{flex:0 0 16px;min-width:16px;width:16px;min-height:20px;padding:0;background:transparent;border:0;color:#aab3c0;font-size:11px;cursor:pointer}
+#sgh .sgh-name{flex:1 1 40px;min-width:30px;width:0;height:20px;min-height:20px;box-sizing:border-box;padding:0 4px;background:#1b1f22;color:#d1d8e4;border:1px solid #14171a;border-radius:2px;font:600 11px system-ui}
+#sgh .sgh-name:focus{outline:1px solid #17a64f}
+#sgh .sgh-m,#sgh .sgh-s{flex:0 0 auto;min-width:20px;width:20px;height:20px;min-height:20px;padding:0;font-size:10px;font-weight:700;line-height:18px;border-radius:2px;background:linear-gradient(#4b535d,#353c45);border:1px solid #14171a;color:#d1d8e4;cursor:pointer}
+#sgh .sgh-m.on{background:linear-gradient(#e0902d,#a96511);color:#fff}
+#sgh .sgh-s.on{background:linear-gradient(#17a64f,#0f7a38);color:#fff}
+#sgh .sgh-vol{flex:0 0 44px;width:44px;min-width:0;height:18px;margin:0;accent-color:#17a64f}
+#sgh .sgh-pan{flex:0 0 32px;width:32px;min-width:0;height:18px;margin:0;accent-color:#6c7684}
+#sgh .sgh-menu{flex:0 0 auto;min-width:18px;width:18px;height:20px;min-height:20px;padding:0;background:transparent;border:0;color:#aab3c0;font-size:14px;line-height:1;cursor:pointer}
+#sgh .sgh-menu:hover,#sgh .sgh-fold:hover{color:#fff}
+#sgh .sgh-row.col .sgh-vol,#sgh .sgh-row.col .sgh-pan{display:none}
+#sgh button:focus-visible,#sgh input:focus-visible{outline:2px solid #17a64f;outline-offset:1px}
+@media(pointer:coarse){#sgh .sgh-ic{min-width:30px;width:30px;height:30px;min-height:30px;line-height:28px}#sgh .sgh-m,#sgh .sgh-s{min-width:30px;width:30px;height:30px;min-height:30px;line-height:28px}#sgh .sgh-name{height:30px;min-height:30px}#sgh .sgh-vol{flex-basis:50px;width:50px;height:28px}#sgh .sgh-pan{flex-basis:36px;width:36px;height:28px}#sgh .sgh-menu,#sgh .sgh-fold{min-width:24px;width:24px;flex-basis:24px;min-height:30px}#sgh .sgh-grip{flex-basis:10px}:root{--sgh-w:344px}}
+.sgm-sep{height:1px;margin:4px 6px;background:#14171a;opacity:.9}
+.ctxm .sgm-off{opacity:.42;cursor:default}
+.sg-pop{position:fixed;z-index:3000;display:flex;align-items:center;gap:6px;padding:8px 10px;background:#3b424a;border:1px solid #14171a;border-radius:3px;box-shadow:1px 3px 8px #000a;color:#d1d8e4;font-size:12px}
+.sg-pop input{width:170px;min-height:28px;background:#1b1f22;color:#d1d8e4;border:1px solid #14171a;padding:0 6px;border-radius:2px}
+.sg-pop button{min-height:28px;padding:0 10px}
+.sg-colorpick{position:fixed;left:-100px;top:-100px;width:1px;height:1px;opacity:0;pointer-events:none}
+#sgbar .sgbar2{flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;margin-top:2px;padding-top:3px;border-top:1px solid #14171a}
+#sgbar .sgbar2 button{min-width:30px}
+#sgbar .sgbar2 button.on{background:#17793b;border-color:#0d5a28;color:#fff}
+#sgbar .sgbar2 .hintline{display:none}
