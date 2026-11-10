@@ -19,7 +19,7 @@ function initAudio(){
   if(ctx){if(ctx.state!=='running')ctx.resume();return}
   ctx=new (window.AudioContext||window.webkitAudioContext)();
   const c=ctx.createDynamicsCompressor();master=ctx.createGain();master.gain.value=S.master==null?.8:S.master;master.connect(c);c.connect(ctx.destination);an=ctx.createAnalyser();c.connect(an);meter();ensureWL(ctx).then(rebuildAll).catch(()=>{});
-  ctx.resume();try{warmKick()}catch(_){}
+  ctx.resume();
 }
 function bindPb(t,par,node,bus){try{const pb=getCh(t)[bus||'pb'];pb.connect(par);node.addEventListener('ended',()=>{try{pb.disconnect(par)}catch(_){}})}catch(_){}}
 function voice(t,p,v,when,dur){PC=(VB==null||!(PA&&PA.p))?null:pitchCurve(t,VB,dur/spb());if(PA&&PA.p){const av=patAutoVal(PA.p,PA.b,'vol');v=Math.max(0,Math.min(127,v*av));const ev=patAutoVal(PA.p,PA.b,'echo');try{const ch=getCh(t);ch.eg.gain.setValueAtTime(Math.max(0,Math.min(1,ev)),when)}catch(_){}}if(t.sf&&sfRes(t))sfVoice(t,p,v,when,dur);else synthVoice(t,p,v,when,dur);PC=null;PA=null}
@@ -52,13 +52,13 @@ function schedule(){
   }
 }
 function play(){
-  if(playing)return;try{libSyncProject().catch(()=>{})}catch(_){}blockPlayback=null;const bb=$('blockPlay');if(bb){bb.classList.remove('on');bb.innerHTML=ico('play')}initAudio();playing=true;
+  if(playing)return;if(sfWaitStart(play))return;try{libSyncProject().catch(()=>{})}catch(_){}blockPlayback=null;const bb=$('blockPlay');if(bb){bb.classList.remove('on');bb.innerHTML=ico('play')}initAudio();playing=true;
   nextBeat=Math.floor(playBeat/SNAP)*SNAP;nextTime=ctx.currentTime+.06;startT=nextTime-nextBeat*spb();
   startRef={t:nextTime,b:nextBeat};startPartial();
   timer=setInterval(schedule,25);schedule();setPlayUI(true);requestAnimationFrame(frame);
 }
 let startRef={t:0,b:0};
-function pause(){playing=false;blockPlayback=null;const bb=$('blockPlay');if(bb){bb.classList.remove('on');bb.innerHTML=ico('play');bb.setAttribute('aria-label','ブロック内を再生');bb.dataset.tip='選択中のソングブロックだけ再生'}clearInterval(timer);ASRC.forEach(x=>{try{x.stop()}catch(e){}});ASRC.clear();resetAuto();setPlayUI(false)}
+function pause(){if(SFPW){clearInterval(SFPW);SFPW=null}playing=false;blockPlayback=null;const bb=$('blockPlay');if(bb){bb.classList.remove('on');bb.innerHTML=ico('play');bb.setAttribute('aria-label','ブロック内を再生');bb.dataset.tip='選択中のソングブロックだけ再生'}clearInterval(timer);ASRC.forEach(x=>{try{x.stop()}catch(e){}});ASRC.clear();resetAuto();setPlayUI(false)}
 let prevPx=0;
 function followPlayhead(){const px=playBeat*BW,v=x=>x>=roll.scrollLeft&&x<=roll.scrollLeft+roll.clientWidth-24;if(v(prevPx)&&!v(px))roll.scrollLeft=Math.max(0,px-60);prevPx=px}
 function stop(rewind){pause();if(rewind){playBeat=0;roll.scrollLeft=0}draw();upPos()}
@@ -84,7 +84,7 @@ function pushUndoSnap(s){if(EMBED_AUTO){autoPostParent('undo-push',{snap:s});ret
 function pushUndo(){pushUndoSnap(snap())}
 function restore(j){S=JSON.parse(j);normS();if(!S.projectName)S.projectName='BGM';sel=Math.min(sel,S.tracks.length-1);selNote=null;selSet.clear();$('bpm').value=S.bpm;updateTabTitle();renderTracks();draw();dirty();try{libSyncProject().catch(()=>{})}catch(_){}}
 let saveT=null;
-function dirty(){NC=null;AC=null;ADC=new Map();if(typeof autoResyncSoon==='function')autoResyncSoon();try{refreshAutoMarks()}catch(_){}$('st').textContent='未保存の変更あり';clearTimeout(saveT);saveT=setTimeout(saveDB,800);window.__BGMQueueSharedSync?.()}
+function dirty(){NC=null;try{warmSoon()}catch(_){}AC=null;ADC=new Map();if(typeof autoResyncSoon==='function')autoResyncSoon();try{refreshAutoMarks()}catch(_){}$('st').textContent='未保存の変更あり';clearTimeout(saveT);saveT=setTimeout(saveDB,800);window.__BGMQueueSharedSync?.()}
 const dbp=new Promise((res,rej)=>{
   if(!window.indexedDB)return rej(new Error('IndexedDB非対応'));
   const r=indexedDB.open('browser-daw',3);r.onupgradeneeded=()=>{const d=r.result;for(const n of ['p','a','sfl','sfb'])if(!d.objectStoreNames.contains(n))d.createObjectStore(n)};
@@ -120,7 +120,7 @@ function renderTracks(){
     d.querySelectorAll('[data-k]').forEach(el=>{
       el.onfocus=()=>{sel=i;draw()};
       el.oninput=()=>{const k=el.dataset.k;t[k]=el.type==='range'?+el.value:el.value;if(k==='vol'&&ctx&&!AUTOLIVE.has('trk:'+t.id+':vol'))getCh(t).in.gain.value=t.vol;dirty();if(k==='color'||k==='name')draw()};
-      el.onchange=()=>{if(el.tagName==='SELECT'){initAudio();voice(t,60,100,ctx.currentTime,.3)}};
+      el.onchange=()=>{if(el.tagName==='SELECT'){sfPreview(t,60,100,.3)}};
     });
     d.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{
       const a=b.dataset.a;
@@ -132,7 +132,7 @@ function renderTracks(){
       dirty();renderTracks();draw();
     });
     const ss=d.querySelector('[data-src]');ss.onfocus=()=>{sel=i;draw()};
-    ss.onchange=()=>{const v=ss.value;if(v==='x')return;pushUndo();t.sf=v===''?null:sfParse(v);initAudio();voice(t,60,100,ctx.currentTime,.5);dirty();if(t.sf){warmTracks();libSyncProject().catch(()=>{})}};
+    ss.onchange=()=>{const v=ss.value;if(v==='x')return;pushUndo();t.sf=v===''?null:sfParse(v);sfPreview(t,60,100,.5);dirty();if(t.sf){warmTracks();libSyncProject().catch(()=>{})}};
     tl.appendChild(d);
   });
 }
@@ -247,7 +247,7 @@ cv.addEventListener('pointerdown',e=>{
   else{const p=HI-1-Math.floor(y/RH);if(p<LO||p>=HI){undo.pop();return}
     const s=Math.max(0,Math.min(S.len-lastDur,Math.floor(x/BW/GRID+1e-9)*GRID));
     n={p,s,d:lastDur,v:100};t.notes.push(n);selSet.clear();selSet.add(n);picked=[n]}
-  selNote=n;voice(t,n.p,n.v,ctx.currentTime,.25);
+  selNote=n;sfPreview(t,n.p,n.v,.25);
   const snap=[...selSet].map(m=>({m,s:m.s,p:m.p,d:m.d}));
   drag={mode,n,ox:x/BW-n.s,moved:false,n0s:n.s,n0p:n.p,was,mod,cx:e.clientX,cy:e.clientY,snap,
     groupStart:snap.length?Math.min(...snap.map(o=>o.s)):n.s,
@@ -291,7 +291,7 @@ cv.addEventListener('pointermove',e=>{
     ds=Math.max(-mnS,Math.min(S.len-mxE,ds));
     let dp=Math.max(LO,Math.min(HI-1,HI-1-Math.floor(y/RH)))-drag.n0p;
     dp=Math.max(LO-mnP,Math.min(HI-1-mxP,dp));
-    if(n.p!==drag.n0p+dp)voice(S.tracks[sel],drag.n0p+dp,n.v,ctx.currentTime,.15);
+    if(n.p!==drag.n0p+dp)sfPreview(S.tracks[sel],drag.n0p+dp,n.v,.15);
     for(const o of drag.snap){o.m.s=o.s+ds;o.m.p=o.p+dp}}
   drag.moved=true;draw();
 });
@@ -305,7 +305,7 @@ const endDrag=e=>{if(e&&TP.has(e.pointerId))TP.delete(e.pointerId);if(pinch){if(
 function tapErase(n){const t=S.tracks[sel];t.notes=t.notes.filter(x=>x!==n);selSet.delete(n);if(selNote===n)selNote=null;draw();dirty();$('st').textContent='音符を削除しました(空いた場所をタップで追加 / ↶で元に戻せます)'}
 function tapAdd(x,y){const t=S.tracks[sel];pushUndo();if(x>=S.len*BW)S.len=Math.min(MAXBARS*4,Math.ceil(x/BW/4)*4);
   const p=HI-1-Math.floor(y/RH);if(p<LO||p>=HI){undo.pop();return}
-  const s2=Math.max(0,Math.min(S.len-lastDur,Math.floor(x/BW/GRID+1e-9)*GRID)),n={p,s:s2,d:lastDur,v:100};t.notes.push(n);selSet.clear();selSet.add(n);selNote=n;voice(t,n.p,n.v,ctx.currentTime,.25);draw();dirty()}
+  const s2=Math.max(0,Math.min(S.len-lastDur,Math.floor(x/BW/GRID+1e-9)*GRID)),n={p,s:s2,d:lastDur,v:100};t.notes.push(n);selSet.clear();selSet.add(n);selNote=n;sfPreview(t,n.p,n.v,.25);draw();dirty()}
 function tapPan(e){const d=drag;if(!d.moved&&Math.hypot(e.clientX-d.cx,e.clientY-d.cy)<8)return;d.moved=true;d.mode='pan';roll.scrollLeft=d.sl-(e.clientX-d.cx);roll.scrollTop=d.st-(e.clientY-d.cy)}
 function startPinch(){const[a,b]=[...TP.values()];drag=null;pinch={dx:Math.max(20,Math.abs(a.x-b.x)),dy:Math.max(20,Math.abs(a.y-b.y)),zh,zv}}
 function pinchMove(){const v=[...TP.values()];if(v.length<2)return;const dx=Math.abs(v[0].x-v[1].x),dy=Math.abs(v[0].y-v[1].y);if(dx>=20)zoomH(pinch.zh*dx/pinch.dx);if(dy>=20)zoomV(pinch.zv*dy/pinch.dy)}
@@ -366,6 +366,7 @@ $('play').onclick=()=>playing?pause():play();
 $('blockPlay').onclick=()=>{
   if(blockPlayback&&playing){stop(false);return}
   if(playing)return;
+  if(sfWaitStart(()=>$('blockPlay').onclick()))return;
   const q=sSel&&S.place.includes(sSel)?sSel:null;
   if(!q){$('st').textContent='ソング画面で再生したいブロックを選択してから開いてください';return}
   const start=Math.max(0,q.s),end=Math.min(S.len,q.s+q.l);if(end-start<=0)return;
@@ -426,17 +427,25 @@ function srcOpts(t){let h='<option value="">シンセ(内蔵)</option>',found=fa
     for(const r of f.sf.presets){const on=!!R&&R.file===f&&R.pr===r;if(on)found=true;
       h+='<option value="'+f.id+'|'+r.b+'|'+r.p+'"'+(on?' selected':'')+'>'+String(r.b).padStart(3,'0')+':'+String(r.p).padStart(3,'0')+' '+fsEsc(r.name)+'</option>'}h+='</optgroup>'}
   if(t.sf&&!found)h+='<option value="x" selected>(未読込) '+fsEsc((t.sf.fn||'SF2')+' / '+(t.sf.n||('Bank'+t.sf.b+':'+t.sf.p)))+'</option>';return h}
-async function parseSF2(buf,onProg){
-  const dv=new DataView(buf),u8=new Uint8Array(buf),L=buf.byteLength;
-  const str=(o,n)=>{let s='';for(let i=0;i<n;i++){const c=u8[o+i];if(!c)break;s+=String.fromCharCode(c)}return s};
-  if(L<12||str(0,4)!=='RIFF'||str(8,4)!=='sfbk')throw new Error('SoundFontファイルではありません');
-  const ch={};let smpl=-1,o=12;
-  while(o+8<=L){const id=str(o,4),sz=dv.getUint32(o+4,true);
-    if(id==='LIST'){const ty=str(o+8,4),e=Math.min(L,o+8+sz);let p=o+12;
-      while(p+8<=e){const cid=str(p,4),cs=dv.getUint32(p+4,true);
-        if(ty==='sdta'&&cid==='smpl')smpl=p+8;else if(ty==='pdta'||ty==='INFO')ch[cid]=[p+8,cs];p+=8+cs+(cs&1)}}
+async function parseSF2(src,onProg){
+  // ファイル全体は読まない: 先頭の見出しと、曲データ(pdta)・INFOだけを読む。サンプル本体(smpl)は位置だけ覚えて、必要なときに1個ずつ読む
+  const blob=src instanceof Blob?src:new Blob([src]),L=blob.size;
+  const rd=async(o,n)=>{const e=Math.min(L,o+n);return o>=e?new ArrayBuffer(0):blob.slice(o,e).arrayBuffer()};
+  const s4=(u,o)=>String.fromCharCode(u[o],u[o+1],u[o+2],u[o+3]);
+  const head=new Uint8Array(await rd(0,12));
+  if(L<12||s4(head,0)!=='RIFF'||s4(head,8)!=='sfbk')throw new Error('SoundFontファイルではありません');
+  const ch={};let smpl=-1,ifilMajor=0,dv=null,u8=null,o=12;
+  while(o+12<=L){const h=new Uint8Array(await rd(o,12)),id=s4(h,0),sz=new DataView(h.buffer).getUint32(4,true);
+    if(id==='LIST'){const ty=s4(h,8);
+      if(ty==='sdta'){const e=Math.min(L,o+8+sz);let p=o+12;
+        while(p+8<=e){const hh=new Uint8Array(await rd(p,8)),cs=new DataView(hh.buffer).getUint32(4,true);if(s4(hh,0)==='smpl')smpl=p+8;p+=8+cs+(cs&1)}}
+      else if(ty==='INFO'||ty==='pdta'){const buf=await rd(o+12,Math.max(0,sz-4)),d=new DataView(buf),u=new Uint8Array(buf);let p=0;
+        while(p+8<=buf.byteLength){const cid=s4(u,p),cs=d.getUint32(p+4,true);
+          if(ty==='pdta')ch[cid]=[p+8,cs];else if(cid==='ifil'&&cs>=2)ifilMajor=d.getUint16(p+8,true);p+=8+cs+(cs&1)}
+        if(ty==='pdta'){dv=d;u8=u}}}
     o+=8+sz+(sz&1)}
-  if(ch.ifil&&dv.getUint16(ch.ifil[0],true)>=3)throw new Error('SF3(圧縮形式)は未対応です。現在はSF2のみ読み込めます');
+  const str=(o,n)=>{let s='';for(let i=0;i<n;i++){const c=u8[o+i];if(!c)break;s+=String.fromCharCode(c)}return s};
+  if(ifilMajor>=3)throw new Error('SF3(圧縮形式)は未対応です。現在はSF2のみ読み込めます');
   if(smpl<0)throw new Error('サンプルデータが見つかりません');
   for(const k of ['phdr','pbag','pgen','inst','ibag','igen','shdr'])if(!ch[k])throw new Error('必要なデータ('+k+')がありません');
   let rc=0;const rec=async(n,sz,fn)=>{const[p,l]=ch[n],c=Math.floor(l/sz),a=[];for(let i=0;i<c;i++){a.push(fn(p+i*sz));if(i%16384===16383)await yieldUI()}rc++;if(onProg)onProg(rc/7);await yieldUI();return a};
@@ -465,11 +474,11 @@ async function parseSF2(buf,onProg){
           att:Math.max(0,v(48,'s',0)+pv(48,'s')),atk:tc(v(34,'s',-12000)),dec:tc(v(36,'s',-12000)),
           sus:Math.max(0,Math.min(1440,v(37,'s',0))),rel:Math.max(.06,tc(v(38,'s',-12000))),loop:(v(54,'u',0)&1)===1,pan:v(17,'s',0)})}}
     return pr.z=out}
-  function sBuf(i){const s=samples[i];if(s.buf!==undefined)return s.buf;if(!ctx)return null;const n=s.end-s.start;
-    if(n<8||smpl+s.end*2>L){return s.buf=null}
-    try{const f=new Float32Array(n);for(let j=0;j<n;j++)f[j]=dv.getInt16(smpl+(s.start+j)*2,true)/32768;
-    const ab=ctx.createBuffer(1,n,Math.max(8000,Math.min(96000,s.rate||44100)));ab.copyToChannel(f,0);return s.buf=ab}catch(e){return s.buf=null}}
-  return{presets,zones,sBuf,samples,buf}}
+  const api={presets,zones,samples,blob,size:L,smplOff:smpl,alive:true,meta:u8.length,
+    // 鳴らす時に呼ばれる: 変換済みなら返す。まだなら読み込みを依頼して(最優先)今回は鳴らさない
+    sBuf(i){const s=samples[i];if(!s)return null;if(s.buf!==undefined){if(s.buf)s.lu=++SFTICK;return s.buf}sfEnqueue(api,i,true);return null},
+    free(){api.alive=false;sfDrop(api)},dropCache(){sfDrop(api)},setBlob(b){api.blob=b}};
+  return api}
 function sfVoice(t,p,v,when,dur){
   const SFO=sfRes(t);if(!SFO)return;const pr=SFO.pr;
   for(const z of SFO.sf.zones(pr)){if(p<z.klo||p>z.khi||v<z.vlo||v>z.vhi)continue;
@@ -675,6 +684,7 @@ async function renderMix(sr){ // 既存のオフライン描画(再生と同じ 
   if(!songNotes().some(e=>audible(e.t))&&!AT().some(tr=>tr.clips.length&&audA(tr)))throw Object.assign(new Error('書き出す音符がありません'),{cancel:true});
   const missSF=S.tracks.filter(t=>t.sf&&!sfRes(t)&&songNotes().some(e=>e.t===t));
   if(missSF.length&&!confirm('音源(SF2)が読み込まれていないトラックがあります: '+missSF.map(t=>t.name).join(', ')+'\nこのまま書き出すと、そのトラックは内蔵シンセの音になります。続けますか?'))throw Object.assign(new Error('書き出しを中止しました'),{cancel:true});
+  await sfEnsureAll();
   const sv={ctx,master,an,CH,FXN,AG};let p;
   try{
     const oc=new OfflineAudioContext(2,Math.ceil(dur*sr),sr);if(usesWL())await ensureWL(oc);
@@ -831,7 +841,7 @@ vl.addEventListener('pointerdown',e=>{const{x,y}=vXY(e),tv=vOf(y);let best=null,
   if(!selSet.has(best)){selSet.clear();selSet.add(best)}selNote=best;
   vdrag={n:best,v0:best.v,group:[...selSet].map(n=>({n,v:n.v}))};vApply(e)});
 vl.addEventListener('pointermove',e=>{if(vdrag)vApply(e)});
-const vEnd=()=>{if(!vdrag)return;const n=vdrag.n;vdrag=null;voice(S.tracks[sel],n.p,n.v,ctx.currentTime,.3);draw();dirty()};
+const vEnd=()=>{if(!vdrag)return;const n=vdrag.n;vdrag=null;sfPreview(S.tracks[sel],n.p,n.v,.3);draw();dirty()};
 vl.addEventListener('pointerup',vEnd);vl.addEventListener('pointercancel',vEnd);
 /* ---------- 複製 ---------- */
 function dupSel(){const a=selList();if(!a.length){$('st').textContent='複製する音符を選択してください(選択モードで範囲選択)';return}
@@ -1771,34 +1781,87 @@ $('pnFocus').onclick=()=>{const all=Object.values(pnState).every(v=>!v);
 const LIB={folders:[],files:new Map(),pfav:new Set(),order:'name',selFile:null,selFolder:null,q:'',favOnly:false,autoStore:true,limit:200,log:[],open:new Set(),tgt:-1};
 let LIBVER=0,libT=null;const SFRC=new WeakMap();
 const MB=n=>(n/1048576).toFixed(n>=10485760?0:1)+'MB';
-/* ---- SF2を「少しずつ」読むための補助: UIに処理を返しながら進める ---- */
+/* ================= SF2エンジン(巨大SF2でも弱い端末で落ちないための仕組み) =================
+   ・ファイル全体はメモリに載せない。Blob(ディスク上)のまま、曲データ(pdta)だけ読む
+   ・音のサンプルは「曲で実際に使う分だけ」1個ずつ読み込み・変換する(順番に、UIに処理を返しながら)
+   ・変換済みサンプルの合計に上限(端末のメモリに合わせて自動)を設け、古い/使っていないものから自動で解放
+   ・曲が使うサンプルは「固定」して解放されない。読み込み中は再生開始を待つ(書き出しも同様)          */
 const yieldUI=()=>new Promise(r=>setTimeout(r,0));
 let libRT=0;function libRenderSoon(){if(libRT)return;libRT=setTimeout(()=>{libRT=0;try{libRender()}catch(_){}},150)}
-// Blob/Fileを8MBずつ読み込み(1回で巨大な読み込みをしない)。途中で必ずUIへ処理を返す
-async function readBlobChunked(blob,onProg){const n=blob.size,CH=8*1048576;let out;
-  try{out=new Uint8Array(n)}catch(e){throw new Error('メモリが足りず読み込めません('+MB(n)+')。他のタブやSF2を閉じてから試してください')}
-  for(let o=0;o<n;o+=CH){const part=await blob.slice(o,Math.min(n,o+CH)).arrayBuffer();out.set(new Uint8Array(part),o);if(onProg)onProg(Math.min(1,(o+CH)/n));await yieldUI()}
-  return out.buffer}
-async function sfToBuf(x,onProg){if(x instanceof ArrayBuffer)return x;if(ArrayBuffer.isView(x))return x.buffer.slice(x.byteOffset,x.byteOffset+x.byteLength);
-  if(x&&typeof x.slice==='function'&&typeof x.size==='number')return readBlobChunked(x,onProg);throw new Error('保存データの形式が不明です')}
-// 保存は File/Blob のまま渡す(ArrayBufferの複製でメモリが倍になるのを避ける)。失敗したらArrayBufferで保存
-async function idbPutSrc(id,primary,fallback){try{await idbS('sfb','put',id,primary)}catch(e){if(fallback&&fallback!==primary)await idbS('sfb','put',id,fallback);else throw e}}
-// 使うプリセットのサンプルを、少しずつ(1回8ms以内)先に変換しておく: 再生中のカクつき・フリーズ防止
-const WARMQ=[];let warmT=null;
-function warmKick(){if(warmT||!WARMQ.length)return;warmT=setTimeout(warmStep,30)}
-function warmStep(){warmT=null;if(!WARMQ.length)return;if(!ctx){warmT=setTimeout(()=>{warmT=null;warmKick()},1000);return}
-  const t0=performance.now();while(WARMQ.length&&performance.now()-t0<8){const q=WARMQ.shift();try{q.sf.sBuf(q.i)}catch(e){}}
-  if(WARMQ.length)warmT=setTimeout(warmStep,30)}
-function sfWarmPreset(sf,pr){if(!sf||!pr)return;try{for(const z of sf.zones(pr)){const sm=sf.samples[z.si];if(sm&&sm.buf===undefined&&!WARMQ.some(q=>q.sf===sf&&q.i===z.si))WARMQ.push({sf,i:z.si})}}catch(e){}warmKick()}
-function warmTracks(){try{if(typeof EMBED_AUTO!=='undefined'&&EMBED_AUTO)return;for(const t of S.tracks){if(!t.sf)continue;const R=sfRes(t);if(R)sfWarmPreset(R.sf,R.pr)}}catch(e){}}
+const PIANO_EMBED=new URLSearchParams(location.search).get('pianoEmbed')==='1';
+const SF_LAZY=PIANO_EMBED; // ピアノロール窓は、再生/書き出し/試し聴きのときだけ読む(本体と二重にメモリを使わない)
+const SFBUD=(()=>{let dm=+navigator.deviceMemory||0;if(!dm)dm=(window.matchMedia&&matchMedia('(pointer:coarse)').matches)?2:4;return Math.max(96,Math.min(512,dm*96))*1048576})();
+const SFQ=[],SFLIVE=[];let SFBUSY=0,SFTICK=0,SFMEM=0,SFWARN=0,SFLY=0,SFSHOW=0,SFPW=null,SFSKIP=false,WT=null,WLAST=0,WDIRTY=false;
+const sfPending=()=>SFQ.length+SFBUSY;
+// Blobから、内容で同一性を判定(ファイル名に依存しない)。従来の sfFp と同じ結果になる(既存の登録とIDが一致): サイズ+先頭/末尾/等間隔サンプルのハッシュ
+async function sfFpBlob(blob){const n=blob.size;let h1=2166136261>>>0,h2=5381>>>0;const mx=b=>{h1^=b;h1=Math.imul(h1,16777619)>>>0;h2=(Math.imul(h2,33)+b)>>>0};
+  const rd=async(o,e)=>new Uint8Array(await blob.slice(o,e).arrayBuffer());
+  for(let k=0;k<4;k++)mx((n>>>(k*8))&255);const A=Math.min(n,65536);
+  for(const x of await rd(0,A))mx(x);
+  for(const x of await rd(Math.max(A,n-65536),n))mx(x);
+  const st=Math.max(1,Math.floor(n/4096)),pos=[];for(let i=A;i<n-65536;i+=st)pos.push(i);
+  for(let k=0;k<pos.length;k+=256){const part=await Promise.all(pos.slice(k,k+256).map(o=>blob.slice(o,o+1).arrayBuffer()));for(const x of part)mx(new Uint8Array(x)[0]);await yieldUI()}
+  return h1.toString(16).padStart(8,'0')+h2.toString(16).padStart(8,'0')+n.toString(16)}
+// 保存は File/Blob のまま(ブラウザがディスクへ直接書く)。ArrayBufferの複製でメモリが倍になるのを避ける。小さいファイルだけ旧方式で再挑戦
+async function idbPutSrc(id,blob){try{await idbS('sfb','put',id,blob)}catch(e){if(blob.size<64*1048576)await idbS('sfb','put',id,await blob.arrayBuffer());else throw e}}
+function sfEnqueue(sf,i,hi){const s=sf.samples[i];if(!s||s.buf!==undefined||s.q)return;s.q=1;if(hi)SFQ.unshift({sf,i});else SFQ.push({sf,i});sfPump()}
+// 変換済みが上限を超えるときは、固定されていないもののうち一番古いものから解放
+function sfEvict(need){let g=0;while(SFMEM+need>SFBUD&&g++<5000){let bk=-1,bl=Infinity;
+  for(let k=0;k<SFLIVE.length;k++){const e=SFLIVE[k],s=e.sf.samples[e.i];if(s.pin||!s.buf)continue;if(s.lu<bl){bl=s.lu;bk=k}}
+  if(bk<0)break;const e=SFLIVE[bk],s=e.sf.samples[e.i];SFMEM-=s.buf.length*4;s.buf=undefined;SFLIVE.splice(bk,1)}}
+function sfDrop(sf){for(let k=SFLIVE.length-1;k>=0;k--){const e=SFLIVE[k];if(e.sf!==sf)continue;const s=sf.samples[e.i];if(s.buf)SFMEM-=s.buf.length*4;s.buf=undefined;SFLIVE.splice(k,1)}}
+async function sfDecode(sf,i,s){const n=s.end-s.start;
+  if(n<8||sf.smplOff+s.end*2>sf.size){s.buf=null;return}
+  const raw=await sf.blob.slice(sf.smplOff+s.start*2,sf.smplOff+s.end*2).arrayBuffer(); // このサンプル分だけをディスクから読む
+  if(!sf.alive)return;if(raw.byteLength<n*2){s.buf=null;return}
+  sfEvict(n*4);
+  const rate=Math.max(8000,Math.min(96000,s.rate||44100));let ab;
+  try{ab=new AudioBuffer({numberOfChannels:1,length:n,sampleRate:rate})}catch(e){if(!ctx)throw e;ab=ctx.createBuffer(1,n,rate)}
+  const d=ab.getChannelData(0),i16=new Int16Array(raw,0,n);
+  for(let j0=0;j0<n;j0+=1048576){const j1=Math.min(n,j0+1048576);for(let j=j0;j<j1;j++)d[j]=i16[j]/32768;if(j1<n)await yieldUI()}
+  if(!sf.alive)return;
+  s.buf=ab;s.lu=++SFTICK;SFMEM+=n*4;SFLIVE.push({sf,i});
+  if(SFMEM>SFBUD&&!SFWARN){SFWARN=1;libLog('この曲で使う音色データが約'+MB(SFMEM)+'あり、この端末の目安('+MB(SFBUD)+')を超えています。動作が重い場合は、使う音色を減らしてください','warn')}}
+function sfProg(done){const st=$('st');if(!st)return;if(done){if(SFSHOW){SFSHOW=0;st.textContent='音源の準備ができました'}return}if(SFQ.length>=6||SFSHOW){SFSHOW=1;st.textContent='音源を準備中… 残り'+SFQ.length+'個'}}
+async function sfPump(){if(SFBUSY)return;SFBUSY=1;
+  try{while(SFQ.length){const q=SFQ.shift(),s=q.sf.samples[q.i];if(!s)continue;
+      if(!q.sf.alive||s.buf!==undefined){s.q=0;continue}
+      try{await sfDecode(q.sf,q.i,s)}catch(e){s.buf=null;if(!s.err){s.err=1;console.warn('SF2 sample',e)}}
+      s.q=0;sfProg();if(performance.now()-SFLY>12){await yieldUI();SFLY=performance.now()}}}
+  finally{SFBUSY=0}
+  if(SFQ.length)return sfPump();sfProg(true)}
+// 曲の中で実際に鳴るキー/強さに合うサンプルだけを割り出す
+function sfUsedSamples(t,R){const used=new Set(),seen=new Set(),zs=R.sf.zones(R.pr);
+  for(const e of songNotes()){if(e.t!==t)continue;const k=e.p*128+e.v;if(seen.has(k))continue;seen.add(k);
+    for(const z of zs){if(e.p<z.klo||e.p>z.khi||e.v<z.vlo||e.v>z.vhi)continue;used.add(z.si)}}
+  return used}
+function warmTracks(force){try{if(EMBED_AUTO)return;if(SF_LAZY&&!force)return;if(force&&!WDIRTY&&Date.now()-WLAST<1500)return;WLAST=Date.now();WDIRTY=false;
+  const need=new Map();
+  for(const t of S.tracks){if(!t.sf)continue;const R=sfRes(t);if(!R)continue;let st=need.get(R.sf);if(!st)need.set(R.sf,st=new Set());for(const i of sfUsedSamples(t,R))st.add(i)}
+  for(const f of LIB.files.values())if(f.sf)for(const s of f.sf.samples)s.pin=0;
+  for(const [sf,st] of need)for(const i of st){sf.samples[i].pin=1;sfEnqueue(sf,i,false)}
+  sfProg()}catch(e){console.warn('warm',e)}}
+function warmSoon(){WDIRTY=true;clearTimeout(WT);WT=setTimeout(()=>warmTracks(),300)}
+function sfWaitFor(list){return new Promise(res=>{const t0=Date.now(),iv=setInterval(()=>{if(list.every(s=>s.buf!==undefined)||Date.now()-t0>8000){clearInterval(iv);res()}},40)})}
+// 試し聴き: 必要なサンプルがまだなら、先に読み込んでから鳴らす(最初の1回が無音になるのを防ぐ)
+function sfPreview(t,p,v,d){initAudio();const R=t.sf?sfRes(t):null;
+  if(!R){voice(t,p,v,ctx.currentTime,d);return}
+  const miss=[];for(const z of R.sf.zones(R.pr)){if(p<z.klo||p>z.khi||v<z.vlo||v>z.vhi)continue;const s=R.sf.samples[z.si];if(s&&s.buf===undefined){miss.push(s);sfEnqueue(R.sf,z.si,true)}}
+  if(!miss.length){voice(t,p,v,ctx.currentTime,d);return}
+  sfWaitFor(miss).then(()=>voice(t,p,v,ctx.currentTime,d))}
+// 再生開始: 必要な音色データがまだ読み込み中なら、終わるまで待ってから始める(もう一度押すと取り消し)
+function sfWaitStart(go){if(SFSKIP){SFSKIP=false;return false}
+  if(SFPW){clearInterval(SFPW);SFPW=null;const st=$('st');if(st)st.textContent='';return true}
+  warmTracks(true);if(!sfPending())return false;
+  const t0=Date.now();SFPW=setInterval(()=>{const st=$('st');
+    if(!sfPending()||Date.now()-t0>30000){clearInterval(SFPW);SFPW=null;SFSKIP=true;try{go()}finally{SFSKIP=false}}
+    else if(st)st.textContent='音源を準備中… 残り'+(SFQ.length+SFBUSY)+'個(もう一度押すと取り消し)'},150);
+  return true}
+async function sfEnsureAll(){WDIRTY=true;warmTracks(true);const t0=Date.now();while(sfPending()&&Date.now()-t0<180000)await new Promise(r=>setTimeout(r,80))}
 async function idbS(store,op,key,val){const db=await dbp;return new Promise((res,rej)=>{const st=db.transaction(store,op==='get'?'readonly':'readwrite').objectStore(store),r=op==='get'?st.get(key):op==='del'?st.delete(key):st.put(val,key);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
-// 内容で同一性を判定(ファイル名に依存しない): サイズ+先頭/末尾/等間隔サンプルのハッシュ
-function sfFp(buf){const u=new Uint8Array(buf),n=u.length;let h1=2166136261>>>0,h2=5381>>>0;const mx=b=>{h1^=b;h1=Math.imul(h1,16777619)>>>0;h2=(Math.imul(h2,33)+b)>>>0};
-  for(let k=0;k<4;k++)mx((n>>>(k*8))&255);const A=Math.min(n,65536);for(let i=0;i<A;i++)mx(u[i]);for(let i=Math.max(A,n-65536);i<n;i++)mx(u[i]);
-  const st=Math.max(1,Math.floor(n/4096));for(let i=A;i<n-65536;i+=st)mx(u[i]);return h1.toString(16).padStart(8,'0')+h2.toString(16).padStart(8,'0')+n.toString(16)}
 const libEntry=o=>Object.assign({id:'',name:'',dn:'',size:0,folder:null,fav:false,stored:false,added:Date.now(),sf:null,state:'unloaded',err:''},o);
 function libAttach(f,sf){sf.pmap=new Map(sf.presets.map(p=>[p.b+':'+p.p,p]));f.sf=sf;f.state='loaded';f.err='';LIBVER++}
-function libMem(f){if(!f.sf)return 0;let d=0;for(const s of f.sf.samples)if(s.buf)d+=s.buf.length*4;return f.size+d}
+function libMem(f){if(!f.sf)return 0;let d=0;for(const s of f.sf.samples)if(s.buf)d+=s.buf.length*4;return (f.sf.meta||0)+d}
 function sfRes(t){const q=t.sf;if(!q)return null;const c=SFRC.get(t);if(c&&c.v===LIBVER&&c.k===q)return c.r;
   let f=null;if(q.f)f=LIB.files.get(q.f)||null;else{const all=[...LIB.files.values()];f=all.find(x=>x.sf&&x.name===S.sf2)||all.find(x=>x.sf)||null}
   let r=null;if(f&&f.sf){const pr=f.sf.pmap.get(q.b+':'+q.p);if(pr)r={sf:f.sf,pr,file:f}}SFRC.set(t,{v:LIBVER,k:q,r});return r}
@@ -1824,27 +1887,27 @@ function libSave(){clearTimeout(libT);libT=setTimeout(async()=>{try{await idbS('
 function libLog(m,c){const L={msg:m,cls:c||''};LIB.log.unshift(L);if(LIB.log.length>40)LIB.log.length=40;if(!$f('sfl').hidden)libRenderLog();return L}
 async function libAddFiles(files){
   for(const file of files){const L=libLog(file.name+': 読み込み中…');
-    try{if(!/\.(sf2|sf3)$/i.test(file.name))throw new Error('SF2ファイルではありません(拡張子)');if(file.size>500*1048576)throw new Error('ファイルが大きすぎます(500MB超)');
-      const buf=await readBlobChunked(file,x=>{L.msg=file.name+': 読み込み中 '+Math.round(x*50)+'%';libRenderSoon()}),id=sfFp(buf);await yieldUI();let ent=LIB.files.get(id);
+    try{if(!/\.(sf2|sf3)$/i.test(file.name))throw new Error('SF2ファイルではありません(拡張子)');if(file.size>2*1073741824)throw new Error('ファイルが大きすぎます(2GB超)');
+      L.msg=file.name+': 確認中…';libRenderSoon();const id=await sfFpBlob(file);let ent=LIB.files.get(id);
       if(ent&&ent.sf){L.msg=file.name+': 重複 — すでに「'+(ent.dn||ent.name)+'」として登録済みです(追加しませんでした)';L.cls='warn';libRenderLog();continue}
-      const sf=await parseSF2(buf,x=>{L.msg=file.name+': 解析中 '+Math.round(50+x*50)+'%';libRenderSoon()});if(!sf.presets.length)throw new Error('プリセットがありません');
+      const sf=await parseSF2(file,x=>{L.msg=file.name+': 解析中 '+Math.round(x*100)+'%';libRenderSoon()});if(!sf.presets.length)throw new Error('プリセットがありません');
       const re=!!ent;if(!ent){ent=libEntry({id,name:file.name,dn:file.name,size:file.size,folder:LIB.selFolder});LIB.files.set(id,ent)}else ent.name=file.name;
       libAttach(ent,sf);ent.src=file;let note='';
-      if(LIB.autoStore&&!ent.stored){try{await idbPutSrc(id,file,buf);ent.stored=true;if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){note=' ※ブラウザへの保存に失敗('+(e.name||e.message)+')。次回は再選択が必要です'}}
+      if(LIB.autoStore&&!ent.stored){try{L.msg=file.name+': ブラウザに保存中…(大きいファイルは時間がかかります)';libRenderSoon();await idbPutSrc(id,file);ent.stored=true;try{const sb=await idbS('sfb','get',id);if(sb instanceof Blob&&sb.size===file.size){sf.setBlob(sb);ent.src=sb}}catch(_){}if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){note=' ※ブラウザへの保存に失敗('+(e.name||e.message)+')。次回は再選択が必要です'}}
       L.msg=file.name+': '+(re?'再接続しました':'追加しました')+' — '+sf.presets.length+'プリセット / '+MB(file.size)+(ent.stored?' / ブラウザに保存済み':' / 保存なし(再起動後は再選択が必要)')+note;L.cls=note?'warn':'ok';
       if(!S.sf2)S.sf2=file.name;LIB.selFile=ent.id;
       const t=S.tracks[sel];if(t&&!t.sf){const pr=sf.pmap.get('0:0')||sf.presets[0];t.sf={f:id,b:pr.b,p:pr.p,n:pr.name,fn:ent.dn||ent.name};dirty()}
-      libBindLegacy();renderTracks();warmTracks();libSave();
-      const tot=[...LIB.files.values()].reduce((a,x)=>a+libMem(x),0);if(tot>1.2*1073741824)libLog('読み込み済みSF2が合計'+MB(tot)+'になりました。使っていないSF2は「解放」するとメモリを節約できます','warn')}
+      libBindLegacy();renderTracks();warmTracks();libSave();}
     catch(e){L.msg=file.name+': 失敗 — '+e.message;L.cls='err'}
     libRender();await yieldUI()}
   libSave()}
 const LOADP=new Map();
 function libLoadStored(f){if(f.sf)return Promise.resolve();let p=LOADP.get(f.id);if(p)return p;
   p=(async()=>{f.state='loading';f.prog=0;libRender();
-    try{const raw=await idbS('sfb','get',f.id);if(!raw){f.stored=false;throw new Error('ブラウザ内に保存データがありません。SF2を再選択してください')}
-      const buf=await sfToBuf(raw,x=>{f.prog=x*.5;libRenderSoon()});await yieldUI();
-      const sf=await parseSF2(buf,x=>{f.prog=.5+x*.5;libRenderSoon()});libAttach(f,sf);f.prog=1;f.errT=0}
+    try{let raw=await idbS('sfb','get',f.id);if(!raw){f.stored=false;throw new Error('ブラウザ内に保存データがありません。SF2を再選択してください')}
+      if(!(raw instanceof Blob)){ // 旧形式(ArrayBuffer)で保存されたもの: Blobにして保存し直す(以後はディスク上のまま扱える)
+        const b=new Blob([raw]);raw=b;idbPutSrc(f.id,b).then(()=>idbS('sfb','get',f.id)).then(sb=>{if(sb instanceof Blob&&f.sf&&sb.size===b.size)f.sf.setBlob(sb)}).catch(()=>{})}
+      const sf=await parseSF2(raw,x=>{f.prog=x;libRenderSoon()});libAttach(f,sf);f.prog=1;f.errT=0}
     catch(e){f.state='unloaded';f.err=e.message;f.errT=Date.now();libLog((f.dn||f.name)+': '+e.message,'err')}
     finally{LOADP.delete(f.id)}libRender()})();
   LOADP.set(f.id,p);return p}
@@ -1884,20 +1947,20 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden){SYNCR=0;l
 async function libInit(){try{const m=await idbS('sfl','get','meta');if(m)libApplyMeta(JSON.parse(m))}catch(e){libLog('ライブラリ情報を読み込めませんでした: '+e.message,'err')}await libEnsureForProject()}
 function libUnload(f){const used=S.tracks.filter(t=>t.sf&&t.sf.f===f.id).map(t=>t.name);
   if(used.length&&!confirm('トラック('+used.join(', ')+')がこのSF2を使っています。解放すると、読み込み直すまで内蔵シンセで鳴ります。続けますか?'))return;
-  f.sf=null;f.state='unloaded';LIBVER++;renderTracks();libRender()}
+  if(f.sf)f.sf.free();f.sf=null;f.state='unloaded';LIBVER++;renderTracks();libRender()}
 async function libUnreg(f){if(!confirm('「'+(f.dn||f.name)+'」をライブラリから登録解除します。\n(元のSF2ファイルは削除されません)'))return;
   let del=false;if(f.stored)del=confirm('このブラウザ内に保存したSF2のコピーも削除しますか?\nOK=コピーも削除 / キャンセル=コピーは残して登録だけ解除');
   if(del){try{await idbS('sfb','del',f.id)}catch(e){libLog('保存データを削除できませんでした: '+e.message,'err')}}
-  const used=S.tracks.filter(t=>t.sf&&t.sf.f===f.id).map(t=>t.name);LIB.files.delete(f.id);if(LIB.selFile===f.id)LIB.selFile=null;LIBVER++;
+  const used=S.tracks.filter(t=>t.sf&&t.sf.f===f.id).map(t=>t.name);if(f.sf)f.sf.free();LIB.files.delete(f.id);if(LIB.selFile===f.id)LIB.selFile=null;LIBVER++;
   if(used.length)libLog('注意: トラック('+used.join(', ')+')がこのSF2を参照しています。再追加するまで内蔵シンセで鳴ります','warn');libLog('登録解除しました: '+(f.dn||f.name)+(f.stored&&!del?'(保存データは残してあります)':''),'ok');libSave();renderTracks();libRender()}
-async function libStore(f,on){try{if(on){if(!f.sf||!f.sf.buf)throw new Error('先にSF2を読み込んでください');await idbPutSrc(f.id,f.src||f.sf.buf,f.sf.buf);f.stored=true;libLog('ブラウザに保存しました: '+(f.dn||f.name),'ok')}
+async function libStore(f,on){try{if(on){if(!f.sf||!f.sf.blob)throw new Error('先にSF2を読み込んでください');await idbPutSrc(f.id,f.src||f.sf.blob);f.stored=true;libLog('ブラウザに保存しました: '+(f.dn||f.name),'ok')}
     else{if(!confirm('ブラウザ内に保存したコピーを削除します(登録と、元のファイルは残ります)。よろしいですか?'))return;await idbS('sfb','del',f.id);f.stored=false;libLog('保存データを削除しました: '+(f.dn||f.name),'ok')}}
   catch(e){libLog('保存操作に失敗: '+(e.name||'')+' '+e.message,'err')}libSave();libRender()}
 function libMove(fid,folder){const f=LIB.files.get(fid);if(!f)return;f.folder=folder||null;if(folder)LIB.open.add(folder);libSave();renderTracks();libRender()}
 function libAssign(fid,b,p){const f=LIB.files.get(fid),pr=f&&f.sf&&f.sf.pmap.get(b+':'+p);if(!pr)return;const ti=(LIB.tgt>=0&&S.tracks[LIB.tgt])?LIB.tgt:sel,t=S.tracks[ti];if(!t)return;
   pushUndo();t.sf={f:fid,b,p,n:pr.name,fn:f.dn||f.name};if(!S.sf2)S.sf2=f.name;dirty();renderTracks();warmTracks();libLog('トラック「'+t.name+'」に設定: '+(f.dn||f.name)+' / '+pr.name,'ok');libRender()}
 const AUDT={sf:null,vol:.85,mute:false,solo:false,wave:'sine',cut:6000,pan:0,fx:[],id:'__aud'};
-function libAud(fid,b,p){const f=LIB.files.get(fid);if(!f||!f.sf)return;initAudio();AUDT.sf={f:fid,b,p};voice(AUDT,b===128?38:60,100,ctx.currentTime+.02,.9)}
+function libAud(fid,b,p){const f=LIB.files.get(fid);if(!f||!f.sf)return;initAudio();AUDT.sf={f:fid,b,p};sfPreview(AUDT,b===128?38:60,100,.9)}
 const libBadge=f=>(f.sf?'読込済 '+MB(libMem(f)):f.state==='loading'?'読込中 '+Math.round((f.prog||0)*100)+'%':f.stored?'未読込(保存済)':'要再選択')+(f.err&&!f.sf?' ⚠':'');
 function libTree(){const fileRow=f=>'<div class="sff'+(LIB.selFile===f.id?' sel':'')+'" data-f="'+f.id+'" draggable="true"><span title="'+fsEsc(f.name)+'">♪ '+fsEsc(f.dn||f.name)+'</span><small>'+libBadge(f)+'</small><button data-fav="'+f.id+'" title="お気に入り">'+(f.fav?'★':'☆')+'</button></div>';
   const favs=[...LIB.files.values()].filter(f=>f.fav);let h='';if(favs.length)h+='<div class="sfd"><span>★ お気に入り ('+favs.length+')</span></div>'+favs.map(fileRow).join('');
@@ -1954,7 +2017,7 @@ sflR.addEventListener('click',async e=>{const t=e.target,f=LIB.files.get(LIB.sel
   if(a==='fav'){f.fav=!f.fav;libSave();libRender()}
   else if(a==='ren'){const n=prompt('表示名を変更(元のファイル名: '+f.name+')',f.dn||f.name);if(n===null)return;f.dn=n.trim().slice(0,60)||f.name;libSave();renderTracks();libRender()}
   else if(a==='unload')libUnload(f);else if(a==='load')libLoadStored(f).then(()=>{renderTracks();libSave()});
-  else if(a==='cache'){if(f.sf)f.sf.samples.forEach(s=>{s.buf=undefined});libLog('キャッシュを解放しました: '+(f.dn||f.name),'ok');libRender()}
+  else if(a==='cache'){if(f.sf){f.sf.dropCache();warmTracks(true)}libLog('キャッシュを解放しました: '+(f.dn||f.name),'ok');libRender()}
   else if(a==='store')libStore(f,true);else if(a==='unstore')libStore(f,false);else if(a==='unreg')libUnreg(f)});
 sflR.addEventListener('change',e=>{if(e.target.dataset.a==='mv')libMove(LIB.selFile,e.target.value||null)});
 addEventListener('keydown',e=>{const o=$f('sfl');if(o&&!o.hidden&&e.key==='Escape'&&!DD.openNow()){closeLib();e.stopImmediatePropagation()}},true);
@@ -2239,7 +2302,7 @@ function __applyShared(data){
     $('bpm').value=S.bpm;updateTabTitle();renderTracks();
     if(EMBED_AUTO&&typeof autoReapplySel==='function')autoReapplySel();
     draw();
-    try{libSyncProject().catch(()=>{})}catch(_){}
+    try{libSyncProject().catch(()=>{});warmSoon()}catch(_){}
   }catch(err){console.warn('Shared project sync failed',err)}finally{__bgmApplyingShared=false}
 }
 if(__bgmChannel)__bgmChannel.addEventListener('message',e=>{
