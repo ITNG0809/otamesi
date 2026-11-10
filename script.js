@@ -19,7 +19,7 @@ function initAudio(){
   if(ctx){if(ctx.state!=='running')ctx.resume();return}
   ctx=new (window.AudioContext||window.webkitAudioContext)();
   const c=ctx.createDynamicsCompressor();master=ctx.createGain();master.gain.value=S.master==null?.8:S.master;master.connect(c);c.connect(ctx.destination);an=ctx.createAnalyser();c.connect(an);meter();ensureWL(ctx).then(rebuildAll).catch(()=>{});
-  ctx.resume();
+  ctx.resume();try{warmKick()}catch(_){}
 }
 function bindPb(t,par,node,bus){try{const pb=getCh(t)[bus||'pb'];pb.connect(par);node.addEventListener('ended',()=>{try{pb.disconnect(par)}catch(_){}})}catch(_){}}
 function voice(t,p,v,when,dur){PC=(VB==null||!(PA&&PA.p))?null:pitchCurve(t,VB,dur/spb());if(PA&&PA.p){const av=patAutoVal(PA.p,PA.b,'vol');v=Math.max(0,Math.min(127,v*av));const ev=patAutoVal(PA.p,PA.b,'echo');try{const ch=getCh(t);ch.eg.gain.setValueAtTime(Math.max(0,Math.min(1,ev)),when)}catch(_){}}if(t.sf&&sfRes(t))sfVoice(t,p,v,when,dur);else synthVoice(t,p,v,when,dur);PC=null;PA=null}
@@ -52,7 +52,7 @@ function schedule(){
   }
 }
 function play(){
-  if(playing)return;blockPlayback=null;const bb=$('blockPlay');if(bb){bb.classList.remove('on');bb.innerHTML=ico('play')}initAudio();playing=true;
+  if(playing)return;try{libSyncProject().catch(()=>{})}catch(_){}blockPlayback=null;const bb=$('blockPlay');if(bb){bb.classList.remove('on');bb.innerHTML=ico('play')}initAudio();playing=true;
   nextBeat=Math.floor(playBeat/SNAP)*SNAP;nextTime=ctx.currentTime+.06;startT=nextTime-nextBeat*spb();
   startRef={t:nextTime,b:nextBeat};startPartial();
   timer=setInterval(schedule,25);schedule();setPlayUI(true);requestAnimationFrame(frame);
@@ -82,7 +82,7 @@ $('projectName').addEventListener('change',()=>{S.projectName=String($('projectN
 const snap=()=>JSON.stringify(S,function(k,v){return(k==='notes'&&this&&this.wave!==undefined)?undefined:v});
 function pushUndoSnap(s){if(EMBED_AUTO){autoPostParent('undo-push',{snap:s});return}undo.push(s);if(undo.length>100)undo.shift();redo=[]}
 function pushUndo(){pushUndoSnap(snap())}
-function restore(j){S=JSON.parse(j);normS();if(!S.projectName)S.projectName='BGM';sel=Math.min(sel,S.tracks.length-1);selNote=null;selSet.clear();$('bpm').value=S.bpm;updateTabTitle();renderTracks();draw();dirty()}
+function restore(j){S=JSON.parse(j);normS();if(!S.projectName)S.projectName='BGM';sel=Math.min(sel,S.tracks.length-1);selNote=null;selSet.clear();$('bpm').value=S.bpm;updateTabTitle();renderTracks();draw();dirty();try{libSyncProject().catch(()=>{})}catch(_){}}
 let saveT=null;
 function dirty(){NC=null;AC=null;ADC=new Map();if(typeof autoResyncSoon==='function')autoResyncSoon();try{refreshAutoMarks()}catch(_){}$('st').textContent='未保存の変更あり';clearTimeout(saveT);saveT=setTimeout(saveDB,800);window.__BGMQueueSharedSync?.()}
 const dbp=new Promise((res,rej)=>{
@@ -132,7 +132,7 @@ function renderTracks(){
       dirty();renderTracks();draw();
     });
     const ss=d.querySelector('[data-src]');ss.onfocus=()=>{sel=i;draw()};
-    ss.onchange=()=>{const v=ss.value;if(v==='x')return;pushUndo();t.sf=v===''?null:sfParse(v);initAudio();voice(t,60,100,ctx.currentTime,.5);dirty()};
+    ss.onchange=()=>{const v=ss.value;if(v==='x')return;pushUndo();t.sf=v===''?null:sfParse(v);initAudio();voice(t,60,100,ctx.currentTime,.5);dirty();if(t.sf){warmTracks();libSyncProject().catch(()=>{})}};
     tl.appendChild(d);
   });
 }
@@ -426,7 +426,7 @@ function srcOpts(t){let h='<option value="">シンセ(内蔵)</option>',found=fa
     for(const r of f.sf.presets){const on=!!R&&R.file===f&&R.pr===r;if(on)found=true;
       h+='<option value="'+f.id+'|'+r.b+'|'+r.p+'"'+(on?' selected':'')+'>'+String(r.b).padStart(3,'0')+':'+String(r.p).padStart(3,'0')+' '+fsEsc(r.name)+'</option>'}h+='</optgroup>'}
   if(t.sf&&!found)h+='<option value="x" selected>(未読込) '+fsEsc((t.sf.fn||'SF2')+' / '+(t.sf.n||('Bank'+t.sf.b+':'+t.sf.p)))+'</option>';return h}
-function parseSF2(buf){
+async function parseSF2(buf,onProg){
   const dv=new DataView(buf),u8=new Uint8Array(buf),L=buf.byteLength;
   const str=(o,n)=>{let s='';for(let i=0;i<n;i++){const c=u8[o+i];if(!c)break;s+=String.fromCharCode(c)}return s};
   if(L<12||str(0,4)!=='RIFF'||str(8,4)!=='sfbk')throw new Error('SoundFontファイルではありません');
@@ -439,13 +439,13 @@ function parseSF2(buf){
   if(ch.ifil&&dv.getUint16(ch.ifil[0],true)>=3)throw new Error('SF3(圧縮形式)は未対応です。現在はSF2のみ読み込めます');
   if(smpl<0)throw new Error('サンプルデータが見つかりません');
   for(const k of ['phdr','pbag','pgen','inst','ibag','igen','shdr'])if(!ch[k])throw new Error('必要なデータ('+k+')がありません');
-  const rec=(n,sz,fn)=>{const[p,l]=ch[n],c=Math.floor(l/sz),a=[];for(let i=0;i<c;i++)a.push(fn(p+i*sz));return a};
+  let rc=0;const rec=async(n,sz,fn)=>{const[p,l]=ch[n],c=Math.floor(l/sz),a=[];for(let i=0;i<c;i++){a.push(fn(p+i*sz));if(i%16384===16383)await yieldUI()}rc++;if(onProg)onProg(rc/7);await yieldUI();return a};
   const gen=p=>({o:dv.getUint16(p,true),lo:u8[p+2],hi:u8[p+3],s:dv.getInt16(p+2,true),u:dv.getUint16(p+2,true)});
-  const phdr=rec('phdr',38,p=>({name:str(p,20),p:dv.getUint16(p+20,true),b:dv.getUint16(p+22,true),bag:dv.getUint16(p+24,true)}));
-  const pbag=rec('pbag',4,p=>dv.getUint16(p,true)),pgen=rec('pgen',4,gen);
-  const inst=rec('inst',22,p=>({bag:dv.getUint16(p+20,true)}));
-  const ibag=rec('ibag',4,p=>dv.getUint16(p,true)),igen=rec('igen',4,gen);
-  const samples=rec('shdr',46,p=>({start:dv.getUint32(p+20,true),end:dv.getUint32(p+24,true),sl:dv.getUint32(p+28,true),el:dv.getUint32(p+32,true),rate:dv.getUint32(p+36,true),pitch:u8[p+40],corr:dv.getInt8(p+41),type:dv.getUint16(p+44,true)})).slice(0,-1);
+  const phdr=await rec('phdr',38,p=>({name:str(p,20),p:dv.getUint16(p+20,true),b:dv.getUint16(p+22,true),bag:dv.getUint16(p+24,true)}));
+  const pbag=await rec('pbag',4,p=>dv.getUint16(p,true)),pgen=await rec('pgen',4,gen);
+  const inst=await rec('inst',22,p=>({bag:dv.getUint16(p+20,true)}));
+  const ibag=await rec('ibag',4,p=>dv.getUint16(p,true)),igen=await rec('igen',4,gen);
+  const samples=(await rec('shdr',46,p=>({start:dv.getUint32(p+20,true),end:dv.getUint32(p+24,true),sl:dv.getUint32(p+28,true),el:dv.getUint32(p+32,true),rate:dv.getUint32(p+36,true),pitch:u8[p+40],corr:dv.getInt8(p+41),type:dv.getUint16(p+44,true)}))).slice(0,-1);
   if(samples.some(s=>s.type&0x10))throw new Error('圧縮サンプル(SF3)は未対応です');
   const zl=(bags,gens,i0,i1)=>{const z=[];for(let b=i0;b<i1;b++){const m={};for(let k=bags[b];k<bags[b+1];k++)m[gens[k].o]=gens[k];z.push(m)}return z};
   const presets=phdr.slice(0,-1).map((h,i)=>({name:h.name,b:h.b,p:h.p,i0:h.bag,i1:phdr[i+1].bag})).sort((a,b)=>a.b-b.b||a.p-b.p);
@@ -465,10 +465,10 @@ function parseSF2(buf){
           att:Math.max(0,v(48,'s',0)+pv(48,'s')),atk:tc(v(34,'s',-12000)),dec:tc(v(36,'s',-12000)),
           sus:Math.max(0,Math.min(1440,v(37,'s',0))),rel:Math.max(.06,tc(v(38,'s',-12000))),loop:(v(54,'u',0)&1)===1,pan:v(17,'s',0)})}}
     return pr.z=out}
-  function sBuf(i){const s=samples[i];if(s.buf!==undefined)return s.buf;const n=s.end-s.start;
+  function sBuf(i){const s=samples[i];if(s.buf!==undefined)return s.buf;if(!ctx)return null;const n=s.end-s.start;
     if(n<8||smpl+s.end*2>L){return s.buf=null}
-    const f=new Float32Array(n);for(let j=0;j<n;j++)f[j]=dv.getInt16(smpl+(s.start+j)*2,true)/32768;
-    const ab=ctx.createBuffer(1,n,Math.max(8000,Math.min(96000,s.rate||44100)));ab.copyToChannel(f,0);return s.buf=ab}
+    try{const f=new Float32Array(n);for(let j=0;j<n;j++)f[j]=dv.getInt16(smpl+(s.start+j)*2,true)/32768;
+    const ab=ctx.createBuffer(1,n,Math.max(8000,Math.min(96000,s.rate||44100)));ab.copyToChannel(f,0);return s.buf=ab}catch(e){return s.buf=null}}
   return{presets,zones,sBuf,samples,buf}}
 function sfVoice(t,p,v,when,dur){
   const SFO=sfRes(t);if(!SFO)return;const pr=SFO.pr;
@@ -1771,6 +1771,26 @@ $('pnFocus').onclick=()=>{const all=Object.values(pnState).every(v=>!v);
 const LIB={folders:[],files:new Map(),pfav:new Set(),order:'name',selFile:null,selFolder:null,q:'',favOnly:false,autoStore:true,limit:200,log:[],open:new Set(),tgt:-1};
 let LIBVER=0,libT=null;const SFRC=new WeakMap();
 const MB=n=>(n/1048576).toFixed(n>=10485760?0:1)+'MB';
+/* ---- SF2を「少しずつ」読むための補助: UIに処理を返しながら進める ---- */
+const yieldUI=()=>new Promise(r=>setTimeout(r,0));
+let libRT=0;function libRenderSoon(){if(libRT)return;libRT=setTimeout(()=>{libRT=0;try{libRender()}catch(_){}},150)}
+// Blob/Fileを8MBずつ読み込み(1回で巨大な読み込みをしない)。途中で必ずUIへ処理を返す
+async function readBlobChunked(blob,onProg){const n=blob.size,CH=8*1048576;let out;
+  try{out=new Uint8Array(n)}catch(e){throw new Error('メモリが足りず読み込めません('+MB(n)+')。他のタブやSF2を閉じてから試してください')}
+  for(let o=0;o<n;o+=CH){const part=await blob.slice(o,Math.min(n,o+CH)).arrayBuffer();out.set(new Uint8Array(part),o);if(onProg)onProg(Math.min(1,(o+CH)/n));await yieldUI()}
+  return out.buffer}
+async function sfToBuf(x,onProg){if(x instanceof ArrayBuffer)return x;if(ArrayBuffer.isView(x))return x.buffer.slice(x.byteOffset,x.byteOffset+x.byteLength);
+  if(x&&typeof x.slice==='function'&&typeof x.size==='number')return readBlobChunked(x,onProg);throw new Error('保存データの形式が不明です')}
+// 保存は File/Blob のまま渡す(ArrayBufferの複製でメモリが倍になるのを避ける)。失敗したらArrayBufferで保存
+async function idbPutSrc(id,primary,fallback){try{await idbS('sfb','put',id,primary)}catch(e){if(fallback&&fallback!==primary)await idbS('sfb','put',id,fallback);else throw e}}
+// 使うプリセットのサンプルを、少しずつ(1回8ms以内)先に変換しておく: 再生中のカクつき・フリーズ防止
+const WARMQ=[];let warmT=null;
+function warmKick(){if(warmT||!WARMQ.length)return;warmT=setTimeout(warmStep,30)}
+function warmStep(){warmT=null;if(!WARMQ.length)return;if(!ctx){warmT=setTimeout(()=>{warmT=null;warmKick()},1000);return}
+  const t0=performance.now();while(WARMQ.length&&performance.now()-t0<8){const q=WARMQ.shift();try{q.sf.sBuf(q.i)}catch(e){}}
+  if(WARMQ.length)warmT=setTimeout(warmStep,30)}
+function sfWarmPreset(sf,pr){if(!sf||!pr)return;try{for(const z of sf.zones(pr)){const sm=sf.samples[z.si];if(sm&&sm.buf===undefined&&!WARMQ.some(q=>q.sf===sf&&q.i===z.si))WARMQ.push({sf,i:z.si})}}catch(e){}warmKick()}
+function warmTracks(){try{if(typeof EMBED_AUTO!=='undefined'&&EMBED_AUTO)return;for(const t of S.tracks){if(!t.sf)continue;const R=sfRes(t);if(R)sfWarmPreset(R.sf,R.pr)}}catch(e){}}
 async function idbS(store,op,key,val){const db=await dbp;return new Promise((res,rej)=>{const st=db.transaction(store,op==='get'?'readonly':'readwrite').objectStore(store),r=op==='get'?st.get(key):op==='del'?st.delete(key):st.put(val,key);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
 // 内容で同一性を判定(ファイル名に依存しない): サイズ+先頭/末尾/等間隔サンプルのハッシュ
 function sfFp(buf){const u=new Uint8Array(buf),n=u.length;let h1=2166136261>>>0,h2=5381>>>0;const mx=b=>{h1^=b;h1=Math.imul(h1,16777619)>>>0;h2=(Math.imul(h2,33)+b)>>>0};
@@ -1805,26 +1825,62 @@ function libLog(m,c){const L={msg:m,cls:c||''};LIB.log.unshift(L);if(LIB.log.len
 async function libAddFiles(files){
   for(const file of files){const L=libLog(file.name+': 読み込み中…');
     try{if(!/\.(sf2|sf3)$/i.test(file.name))throw new Error('SF2ファイルではありません(拡張子)');if(file.size>500*1048576)throw new Error('ファイルが大きすぎます(500MB超)');
-      const buf=await file.arrayBuffer(),id=sfFp(buf);let ent=LIB.files.get(id);
+      const buf=await readBlobChunked(file,x=>{L.msg=file.name+': 読み込み中 '+Math.round(x*50)+'%';libRenderSoon()}),id=sfFp(buf);await yieldUI();let ent=LIB.files.get(id);
       if(ent&&ent.sf){L.msg=file.name+': 重複 — すでに「'+(ent.dn||ent.name)+'」として登録済みです(追加しませんでした)';L.cls='warn';libRenderLog();continue}
-      const sf=parseSF2(buf);if(!sf.presets.length)throw new Error('プリセットがありません');
+      const sf=await parseSF2(buf,x=>{L.msg=file.name+': 解析中 '+Math.round(50+x*50)+'%';libRenderSoon()});if(!sf.presets.length)throw new Error('プリセットがありません');
       const re=!!ent;if(!ent){ent=libEntry({id,name:file.name,dn:file.name,size:file.size,folder:LIB.selFolder});LIB.files.set(id,ent)}else ent.name=file.name;
-      libAttach(ent,sf);let note='';
-      if(LIB.autoStore&&!ent.stored){try{await idbS('sfb','put',id,buf);ent.stored=true;if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){note=' ※ブラウザへの保存に失敗('+(e.name||e.message)+')。次回は再選択が必要です'}}
+      libAttach(ent,sf);ent.src=file;let note='';
+      if(LIB.autoStore&&!ent.stored){try{await idbPutSrc(id,file,buf);ent.stored=true;if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){note=' ※ブラウザへの保存に失敗('+(e.name||e.message)+')。次回は再選択が必要です'}}
       L.msg=file.name+': '+(re?'再接続しました':'追加しました')+' — '+sf.presets.length+'プリセット / '+MB(file.size)+(ent.stored?' / ブラウザに保存済み':' / 保存なし(再起動後は再選択が必要)')+note;L.cls=note?'warn':'ok';
       if(!S.sf2)S.sf2=file.name;LIB.selFile=ent.id;
       const t=S.tracks[sel];if(t&&!t.sf){const pr=sf.pmap.get('0:0')||sf.presets[0];t.sf={f:id,b:pr.b,p:pr.p,n:pr.name,fn:ent.dn||ent.name};dirty()}
-      libBindLegacy();renderTracks()}
+      libBindLegacy();renderTracks();warmTracks();libSave();
+      const tot=[...LIB.files.values()].reduce((a,x)=>a+libMem(x),0);if(tot>1.2*1073741824)libLog('読み込み済みSF2が合計'+MB(tot)+'になりました。使っていないSF2は「解放」するとメモリを節約できます','warn')}
     catch(e){L.msg=file.name+': 失敗 — '+e.message;L.cls='err'}
-    libRender()}
+    libRender();await yieldUI()}
   libSave()}
-async function libLoadStored(f){f.state='loading';libRender();
-  try{const buf=await idbS('sfb','get',f.id);if(!buf){f.stored=false;throw new Error('ブラウザ内に保存データがありません。SF2を再選択してください')}libAttach(f,parseSF2(buf))}
-  catch(e){f.state='unloaded';f.err=e.message;libLog((f.dn||f.name)+': '+e.message,'err')}libRender()}
-async function libEnsureForProject(){const ids=new Set(S.tracks.filter(t=>t.sf&&t.sf.f).map(t=>t.sf.f));
-  if(S.tracks.some(t=>t.sf&&!t.sf.f)){const f=[...LIB.files.values()].find(x=>x.name===S.sf2&&x.stored);if(f)ids.add(f.id)}
-  for(const id of ids){const f=LIB.files.get(id);if(f&&!f.sf&&f.stored)await libLoadStored(f)}
-  libBindLegacy();LIBVER++;renderTracks();libRender()}
+const LOADP=new Map();
+function libLoadStored(f){if(f.sf)return Promise.resolve();let p=LOADP.get(f.id);if(p)return p;
+  p=(async()=>{f.state='loading';f.prog=0;libRender();
+    try{const raw=await idbS('sfb','get',f.id);if(!raw){f.stored=false;throw new Error('ブラウザ内に保存データがありません。SF2を再選択してください')}
+      const buf=await sfToBuf(raw,x=>{f.prog=x*.5;libRenderSoon()});await yieldUI();
+      const sf=await parseSF2(buf,x=>{f.prog=.5+x*.5;libRenderSoon()});libAttach(f,sf);f.prog=1;f.errT=0}
+    catch(e){f.state='unloaded';f.err=e.message;f.errT=Date.now();libLog((f.dn||f.name)+': '+e.message,'err')}
+    finally{LOADP.delete(f.id)}libRender()})();
+  LOADP.set(f.id,p);return p}
+function libNeedIds(){const ids=new Set(S.tracks.filter(t=>t.sf&&t.sf.f).map(t=>t.sf.f));
+  if(S.tracks.some(t=>t.sf&&!t.sf.f)){const f=[...LIB.files.values()].find(x=>x.name===S.sf2&&x.stored);if(f)ids.add(f.id)}return ids}
+// 他のウィンドウ/タブで追加・保存されたSF2の登録情報を、必要なものだけ取り込む
+async function libMergeMeta(ids){try{const m=await idbS('sfl','get','meta');if(!m)return false;const o=JSON.parse(m),arr=Array.isArray(o.files)?o.files:[];let ch=false;
+    for(const x of arr){if(!x||!x.id)continue;const id=String(x.id),cur=LIB.files.get(id);
+      if(!cur){if(!ids.has(id))continue;const fo=LIB.folders.some(y=>y.id===x.folder)?x.folder:null;
+        LIB.files.set(id,libEntry({id,name:String(x.name||''),dn:String(x.dn||x.name||''),size:+x.size||0,folder:fo,fav:!!x.fav,stored:!!x.stored,added:+x.added||0}));ch=true}
+      else if(!cur.stored&&x.stored){cur.stored=true;ch=true}}
+    return ch}catch(e){return false}}
+/* トラックが使うSF2を、足りなければ自動で読み込む(1ファイルずつ・UIに処理を返しながら)。
+   ・トラックの音源をどのウィンドウで変えても、再読込なしでその場で反映される
+   ・読み込みが終わるまでは内蔵シンセ、終わった瞬間から次のノートでSF2の音に切り替わる */
+let SYNCB=false,SYNCA=false,SYNCR=0,SYNCT=null,METAT=0;
+async function libSyncProject(){
+  if(typeof EMBED_AUTO!=='undefined'&&EMBED_AUTO)return; // オートメーション窓は音を鳴らさないので読み込まない(メモリ節約)
+  if(SYNCB){SYNCA=true;return}
+  SYNCB=true;let pending=false,loaded=false;
+  try{do{SYNCA=false;pending=false;
+      const ids=libNeedIds();
+      if(Date.now()-METAT>1200&&[...ids].some(id=>{const f=LIB.files.get(id);return !f||(!f.sf&&!f.stored)})){METAT=Date.now();await libMergeMeta(ids)}
+      for(const id of ids){const f=LIB.files.get(id);
+        if(!f||(!f.sf&&!f.stored)){pending=true;continue}
+        if(f.sf)continue;
+        if(f.errT&&Date.now()-f.errT<15000)continue; // 直前に失敗したものは、すぐには再試行しない
+        await libLoadStored(f);if(f.sf)loaded=true;else if(!f.err)pending=true}
+      libBindLegacy()}while(SYNCA)}
+  catch(e){console.warn('SF2 sync',e)}
+  finally{SYNCB=false}
+  if(loaded){LIBVER++;renderTracks();warmTracks();libRender()}
+  clearTimeout(SYNCT);if(pending&&SYNCR<6){SYNCT=setTimeout(()=>{SYNCT=null;libSyncProject()},400*(++SYNCR))}else if(!pending)SYNCR=0}
+async function libEnsureForProject(){await libSyncProject();libBindLegacy();LIBVER++;renderTracks();libRender();warmTracks()}
+addEventListener('focus',()=>{SYNCR=0;libSyncProject().catch(()=>{})});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){SYNCR=0;libSyncProject().catch(()=>{})}});
 async function libInit(){try{const m=await idbS('sfl','get','meta');if(m)libApplyMeta(JSON.parse(m))}catch(e){libLog('ライブラリ情報を読み込めませんでした: '+e.message,'err')}await libEnsureForProject()}
 function libUnload(f){const used=S.tracks.filter(t=>t.sf&&t.sf.f===f.id).map(t=>t.name);
   if(used.length&&!confirm('トラック('+used.join(', ')+')がこのSF2を使っています。解放すると、読み込み直すまで内蔵シンセで鳴ります。続けますか?'))return;
@@ -1834,15 +1890,15 @@ async function libUnreg(f){if(!confirm('「'+(f.dn||f.name)+'」をライブラ�
   if(del){try{await idbS('sfb','del',f.id)}catch(e){libLog('保存データを削除できませんでした: '+e.message,'err')}}
   const used=S.tracks.filter(t=>t.sf&&t.sf.f===f.id).map(t=>t.name);LIB.files.delete(f.id);if(LIB.selFile===f.id)LIB.selFile=null;LIBVER++;
   if(used.length)libLog('注意: トラック('+used.join(', ')+')がこのSF2を参照しています。再追加するまで内蔵シンセで鳴ります','warn');libLog('登録解除しました: '+(f.dn||f.name)+(f.stored&&!del?'(保存データは残してあります)':''),'ok');libSave();renderTracks();libRender()}
-async function libStore(f,on){try{if(on){if(!f.sf||!f.sf.buf)throw new Error('先にSF2を読み込んでください');await idbS('sfb','put',f.id,f.sf.buf);f.stored=true;libLog('ブラウザに保存しました: '+(f.dn||f.name),'ok')}
+async function libStore(f,on){try{if(on){if(!f.sf||!f.sf.buf)throw new Error('先にSF2を読み込んでください');await idbPutSrc(f.id,f.src||f.sf.buf,f.sf.buf);f.stored=true;libLog('ブラウザに保存しました: '+(f.dn||f.name),'ok')}
     else{if(!confirm('ブラウザ内に保存したコピーを削除します(登録と、元のファイルは残ります)。よろしいですか?'))return;await idbS('sfb','del',f.id);f.stored=false;libLog('保存データを削除しました: '+(f.dn||f.name),'ok')}}
   catch(e){libLog('保存操作に失敗: '+(e.name||'')+' '+e.message,'err')}libSave();libRender()}
 function libMove(fid,folder){const f=LIB.files.get(fid);if(!f)return;f.folder=folder||null;if(folder)LIB.open.add(folder);libSave();renderTracks();libRender()}
 function libAssign(fid,b,p){const f=LIB.files.get(fid),pr=f&&f.sf&&f.sf.pmap.get(b+':'+p);if(!pr)return;const ti=(LIB.tgt>=0&&S.tracks[LIB.tgt])?LIB.tgt:sel,t=S.tracks[ti];if(!t)return;
-  pushUndo();t.sf={f:fid,b,p,n:pr.name,fn:f.dn||f.name};if(!S.sf2)S.sf2=f.name;dirty();renderTracks();libLog('トラック「'+t.name+'」に設定: '+(f.dn||f.name)+' / '+pr.name,'ok');libRender()}
+  pushUndo();t.sf={f:fid,b,p,n:pr.name,fn:f.dn||f.name};if(!S.sf2)S.sf2=f.name;dirty();renderTracks();warmTracks();libLog('トラック「'+t.name+'」に設定: '+(f.dn||f.name)+' / '+pr.name,'ok');libRender()}
 const AUDT={sf:null,vol:.85,mute:false,solo:false,wave:'sine',cut:6000,pan:0,fx:[],id:'__aud'};
 function libAud(fid,b,p){const f=LIB.files.get(fid);if(!f||!f.sf)return;initAudio();AUDT.sf={f:fid,b,p};voice(AUDT,b===128?38:60,100,ctx.currentTime+.02,.9)}
-const libBadge=f=>(f.sf?'読込済 '+MB(libMem(f)):f.state==='loading'?'読込中…':f.stored?'未読込(保存済)':'要再選択')+(f.err&&!f.sf?' ⚠':'');
+const libBadge=f=>(f.sf?'読込済 '+MB(libMem(f)):f.state==='loading'?'読込中 '+Math.round((f.prog||0)*100)+'%':f.stored?'未読込(保存済)':'要再選択')+(f.err&&!f.sf?' ⚠':'');
 function libTree(){const fileRow=f=>'<div class="sff'+(LIB.selFile===f.id?' sel':'')+'" data-f="'+f.id+'" draggable="true"><span title="'+fsEsc(f.name)+'">♪ '+fsEsc(f.dn||f.name)+'</span><small>'+libBadge(f)+'</small><button data-fav="'+f.id+'" title="お気に入り">'+(f.fav?'★':'☆')+'</button></div>';
   const favs=[...LIB.files.values()].filter(f=>f.fav);let h='';if(favs.length)h+='<div class="sfd"><span>★ お気に入り ('+favs.length+')</span></div>'+favs.map(fileRow).join('');
   for(const fo of libFolderList()){const fl=libFilesIn(fo.id),op=LIB.open.has(fo.id);
@@ -2183,6 +2239,7 @@ function __applyShared(data){
     $('bpm').value=S.bpm;updateTabTitle();renderTracks();
     if(EMBED_AUTO&&typeof autoReapplySel==='function')autoReapplySel();
     draw();
+    try{libSyncProject().catch(()=>{})}catch(_){}
   }catch(err){console.warn('Shared project sync failed',err)}finally{__bgmApplyingShared=false}
 }
 if(__bgmChannel)__bgmChannel.addEventListener('message',e=>{
