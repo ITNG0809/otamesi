@@ -83,24 +83,18 @@ const snap=()=>JSON.stringify(S,function(k,v){return(k==='notes'&&this&&this.wav
 function pushUndoSnap(s){if(EMBED_AUTO){autoPostParent('undo-push',{snap:s});return}undo.push(s);if(undo.length>100)undo.shift();redo=[]}
 function pushUndo(){pushUndoSnap(snap())}
 function restore(j){S=JSON.parse(j);normS();if(!S.projectName)S.projectName='BGM';sel=Math.min(sel,S.tracks.length-1);selNote=null;selSet.clear();$('bpm').value=S.bpm;updateTabTitle();renderTracks();draw();dirty();try{libSyncProject().catch(()=>{})}catch(_){}}
-let saveT=null;
-function dirty(){NC=null;try{warmSoon()}catch(_){}AC=null;ADC=new Map();if(typeof autoResyncSoon==='function')autoResyncSoon();try{refreshAutoMarks()}catch(_){}$('st').textContent='未保存の変更あり';clearTimeout(saveT);saveT=setTimeout(saveDB,800);window.__BGMQueueSharedSync?.()}
+let PROJ_UNSAVED=false,__bootDone=false; // 未保存の変更あり。ブラウザ内への自動保存は廃止(デバイスへの保存でクリア)
+function dirty(){NC=null;try{warmSoon()}catch(_){}AC=null;ADC=new Map();if(typeof autoResyncSoon==='function')autoResyncSoon();try{refreshAutoMarks()}catch(_){}$('st').textContent='未保存の変更あり';PROJ_UNSAVED=true;window.__BGMQueueSharedSync?.()}
 const dbp=new Promise((res,rej)=>{
   if(!window.indexedDB)return rej(new Error('IndexedDB非対応'));
   const r=indexedDB.open('browser-daw',3);r.onupgradeneeded=()=>{const d=r.result;for(const n of ['p','a','sfl','sfb'])if(!d.objectStoreNames.contains(n))d.createObjectStore(n)};
   r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);
 });
-async function saveDB(){
-  try{S.projectName=currentProjectName();updateTabTitle();const db=await dbp;await new Promise((res,rej)=>{const tx=db.transaction('p','readwrite');tx.objectStore('p').put({data:snap(),at:Date.now()},'current');tx.oncomplete=res;tx.onerror=()=>rej(tx.error)});
-    $('st').textContent='端末に保存済み '+new Date().toLocaleTimeString()}
-  catch(e){$('st').textContent='保存失敗: '+e.message}
-}
-async function loadDB(){
-  try{const db=await dbp;const v=await new Promise((res,rej)=>{const r=db.transaction('p').objectStore('p').get('current');r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
-    if(v){S=JSON.parse(v.data);normS();if(!S.projectName)S.projectName='BGM';$('st').textContent='保存データを読み込みました'}else $('st').textContent='新規プロジェクト'}
-  catch(e){$('st').textContent='保存機能が使えません: '+e.message}
-  $('bpm').value=S.bpm;updateTabTitle();renderTracks();draw();
-}
+dbp.catch(()=>{}); // IndexedDB非対応・失敗時の「未処理のPromise拒否」を防ぐ(利用側は各自try/catchする)
+/* ブラウザ内プロジェクト保存(IndexedDB 'p' ストアへの自動保存と、起動時の自動復元)は撤去した。
+   ・IndexedDBのデータベースと各ストア('p' 'a' 'sfl' 'sfb')は削除しない(SF2ライブラリ・音声・過去のデータはそのまま)
+   ・保存は、デバイスへの直接保存(File System Access API。非対応なら従来のダウンロード)を使う */
+function startFresh(){$('st').textContent='新規プロジェクト';$('bpm').value=S.bpm;updateTabTitle();renderTracks();draw()}
 
 /* ---------- tracks UI ---------- */
 function renderTracks(){
@@ -385,41 +379,81 @@ $('redo').onclick=()=>{if(!redo.length)return;undo.push(snap());restore(redo.pop
 // Piano-roll-local undo/redo controls share the same project history as the main toolbar.
 $('rollUndo').onclick=()=>$('undo').click();
 $('rollRedo').onclick=()=>$('redo').click();
-$('save').onclick=saveDB;
 $('exp').onclick=()=>dl((currentProjectName().replace(/[\\/:*?"<>|]/g,'_')||'BGM')+'.json',snap(),'application/json');
 $('imp').onclick=()=>$('file').click();
 $('file').onchange=async e=>{const f=e.target.files[0];if(!f)return;
   try{const o=JSON.parse(await f.text());
     if(!o||o.v!==1||!Array.isArray(o.tracks)||!o.tracks.length)throw new Error('対応していない形式です');
-    pushUndo();restore(JSON.stringify(o));loadAudioFiles();libEnsureForProject()}catch(err){alert('読み込み失敗: '+err.message)}e.target.value=''};
+    pushUndo();bgmProjectHandle=null;restore(JSON.stringify(o));loadAudioFiles();libEnsureForProject()}catch(err){alert('読み込み失敗: '+err.message)}e.target.value=''};
 // LMMS風のプロジェクトファイル入出力。拡張子はBGM-notpc専用の .bgmnp (中身はJSON)。
 function bgmProjectFilename(name){return (String(name||'BGM').trim().replace(/[\\/:*?"<>|]/g,'_').slice(0,100)||'BGM')+'.bgmnp'}
+/* ---------- デバイスへの直接保存 (File System Access API) ----------
+   ・開く: showOpenFilePicker / 上書き保存: 開いた(保存した)ファイルのハンドルへ書き込み / 名前を付けて保存: showSaveFilePicker
+   ・権限が失われていたら再許可を求め、拒否・失敗したら保存先を選び直す(それも不可なら従来のダウンロード)
+   ・非対応ブラウザ(iOS/Android など)や埋め込み環境では、従来どおりダウンロード/ファイル選択で保存・読み込み
+   ・形式は従来のJSONプロジェクト(.bgmnp / .json)のまま。プロジェクトの内容はブラウザ内には保存しない(ハンドルだけ記憶) */
+const FSA_OPEN=typeof window.showOpenFilePicker==='function',FSA_SAVE=typeof window.showSaveFilePicker==='function';
+const BGM_PICKER_TYPES=[{description:'BGM-notpc プロジェクト',accept:{'application/json':['.bgmnp','.json']}}];
 let bgmProjectHandle=null;
-async function bgmProjectSave(name,choosePath=false){
+async function bgmHandleStore(h){try{await idbS('p','put','projectHandle',h)}catch(_){}} // 直近のファイルハンドルだけを記憶(内容は保存しない)
+async function bgmHandleLoad(){try{return (await idbS('p','get','projectHandle'))||null}catch(_){return null}}
+async function bgmEnsurePerm(h,write){
+  if(!h||typeof h.queryPermission!=='function')return true;
+  const o={mode:write?'readwrite':'read'};
+  if(await h.queryPermission(o)==='granted')return true;
+  return (await h.requestPermission(o))==='granted'}
+async function bgmWriteHandle(h,text){
+  const w=await h.createWritable();
+  try{await w.write(text);await w.close()}catch(e){try{await w.abort()}catch(_){}throw e}}
+async function bgmProjectSave(name,saveAs=false){
   S.projectName=String(name||currentProjectName()).trim().slice(0,100)||'BGM';$('projectName').value=S.projectName;updateTabTitle();
-  const filename=bgmProjectFilename(S.projectName),blob=new Blob([snap()],{type:'application/json'});
-  try{
-    if(choosePath&&window.showSaveFilePicker){bgmProjectHandle=await window.showSaveFilePicker({suggestedName:filename,types:[{description:'BGM-notpc Project',accept:{'application/json':['.bgmnp']}}]});}
-    if(bgmProjectHandle){const w=await bgmProjectHandle.createWritable();await w.write(blob);await w.close();$('st').textContent='プロジェクトを保存しました: '+filename;saveDB();return}
-  }catch(e){if(e&&e.name==='AbortError')return;bgmProjectHandle=null;$('st').textContent='ファイル保存に失敗したためダウンロードに切り替えます'}
-  dl(filename,blob,'application/json');saveDB();
-}
-async function bgmProjectOpen(file){
-  if(!file)return;bgmProjectHandle=null;
+  const filename=bgmProjectFilename(S.projectName),text=snap(),st=$('st');
+  if(FSA_SAVE){
+    try{
+      let h=saveAs?null:bgmProjectHandle;
+      if(h){let ok=false;try{ok=await bgmEnsurePerm(h,true)}catch(_){ok=false}
+        if(!ok){st.textContent='保存先への書き込み許可がありません。保存先を選び直してください';h=null}}
+      if(!h)h=await window.showSaveFilePicker({suggestedName:filename,types:BGM_PICKER_TYPES});
+      await bgmWriteHandle(h,text);
+      bgmProjectHandle=h;bgmHandleStore(h);PROJ_UNSAVED=false;
+      st.textContent='デバイスに保存しました: '+(h.name||filename)+' '+new Date().toLocaleTimeString();return true
+    }catch(e){
+      if(e&&e.name==='AbortError')return false; // 保存先の選択をキャンセル
+      console.warn('File System Access save failed',e);bgmProjectHandle=null;
+      st.textContent='直接保存できませんでした('+((e&&e.name)||'エラー')+')。ダウンロードで保存します'}
+  }
+  dl(filename,new Blob([text],{type:'application/json'}),'application/json');PROJ_UNSAVED=false;
+  if(!FSA_SAVE)st.textContent='ダウンロードで保存しました: '+filename+'(このブラウザは上書き保存に未対応です)';
+  return true}
+async function bgmProjectOpen(file,handle){
+  if(!file)return;
   try{const o=JSON.parse(await file.text());
     if(!o||o.v!==1||!Array.isArray(o.tracks)||!o.tracks.length)throw new Error('BGM-notpcのプロジェクトファイルではありません');
-    pushUndo();restore(JSON.stringify(o));$('projectName').value=S.projectName||'BGM';loadAudioFiles();await libEnsureForProject();
-    $('st').textContent='プロジェクトを開きました: '+file.name;
-  }catch(err){alert('プロジェクトを開けませんでした: '+err.message)}
+    pushUndo();restore(JSON.stringify(o));bgmProjectHandle=handle||null;if(handle)bgmHandleStore(handle);
+    $('projectName').value=S.projectName||'BGM';loadAudioFiles();await libEnsureForProject();PROJ_UNSAVED=false;
+    if(!document.querySelector('#st').textContent.includes('SF2'))$('st').textContent='プロジェクトを開きました: '+file.name;
+  }catch(err){alert('読み込めませんでした: '+err.message)}
 }
-$('projectFile').onchange=async e=>{const f=e.target.files[0];e.target.value='';await bgmProjectOpen(f)};
+async function bgmProjectOpenDialog(){
+  if(FSA_OPEN){
+    try{const [h]=await window.showOpenFilePicker({types:BGM_PICKER_TYPES,multiple:false});await bgmProjectOpen(await h.getFile(),h);return}
+    catch(e){if(e&&e.name==='AbortError')return;console.warn('showOpenFilePicker failed',e)} // 失敗時はファイル選択ダイアログへ切り替え
+  }
+  $('projectFile').click()}
+async function bgmProjectOpenRecent(){ // 直近に開いた/保存したファイルを、権限を確認(必要なら再許可)して開く
+  const st=$('st'),h=FSA_OPEN?await bgmHandleLoad():null;
+  if(!h){st.textContent='最近使ったプロジェクトはありません';return}
+  try{if(!await bgmEnsurePerm(h,false)){st.textContent='ファイルへのアクセスが許可されませんでした';return}
+    await bgmProjectOpen(await h.getFile(),h)}
+  catch(e){st.textContent='最近使ったプロジェクトを開けませんでした: '+((e&&e.message)||e)}}
+$('projectFile').onchange=async e=>{const f=e.target.files[0];e.target.value='';await bgmProjectOpen(f,null)};
 addEventListener('keydown',e=>{
   if(['INPUT','SELECT'].includes(e.target.tagName))return;
   if(e.code==='Space'){e.preventDefault();$('play').click()}
   else if(e.key==='Delete'||e.key==='Backspace'){delSel()}
   else if((e.ctrlKey||e.metaKey)&&['z','y'].includes((e.key||'').toLowerCase())){e.preventDefault();((e.shiftKey||(e.key||'').toLowerCase()==='y')?$('redo'):$('undo')).click()}
 });
-addEventListener('beforeunload',()=>{if(S)saveDB()});
+addEventListener('beforeunload',e=>{if(PROJ_UNSAVED&&!EMBED_AUTO&&!PIANO_EMBED){e.preventDefault();e.returnValue=''}}); // 自動保存を廃止したため、未保存のまま閉じるときだけ確認する
 /* ---------- SF2 (自前パーサー+サンプラー。SF3は未対応) ---------- */
 let SF=null;
 function srcOpts(t){let h='<option value="">シンセ(内蔵)</option>',found=false;const R=t.sf?sfRes(t):null;
@@ -866,7 +900,7 @@ function AT(){return S.atracks||(S.atracks=[])}
 const cbt=c=>c.d/spb(),audA=tr=>!tr.mute&&(!anySolo()||tr.solo);
 function aGain(tr){let g=AG.get(tr);if(!g){g=ctx.createGain();g.connect(master);AG.set(tr,g);g.gain.value=audA(tr)?tr.vol:0}return g}
 function updateAllAGains(){if(!ctx)return;for(const tr of AT())aGain(tr).gain.value=audA(tr)?tr.vol:0}
-async function decodeBytes(ab){const oc=new (window.OfflineAudioContext||window.webkitOfflineAudioContext)(2,1,44100);return await oc.decodeAudioData(ab.slice(0))}
+async function decodeBytes(ab,own){const oc=new (window.OfflineAudioContext||window.webkitOfflineAudioContext)(2,1,44100);return await oc.decodeAudioData(own?ab:ab.slice(0))} // own=true: 呼び出し側が不要なバッファなので複製しない
 function mkPeaks(b){const BL=256,n=Math.ceil(b.length/BL),pk=new Float32Array(n*2),chs=[];for(let c=0;c<b.numberOfChannels;c++)chs.push(b.getChannelData(c));
   for(let i=0;i<n;i++){let mn=1,mx=-1;const e=Math.min(b.length,(i+1)*BL);for(const d of chs)for(let j=i*BL;j<e;j++){const v=d[j];if(v<mn)mn=v;if(v>mx)mx=v}pk[i*2]=mn;pk[i*2+1]=mx}return pk}
 async function idbA(op,key,val){const db=await dbp;return new Promise((res,rej)=>{const st=db.transaction('a',op==='get'?'readonly':'readwrite').objectStore('a'),r=op==='get'?st.get(key):st.put(val,key);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
@@ -890,8 +924,10 @@ async function addAudio(file){
     fitLen();renderATracks();draw();dirty();
     $('st').textContent='音声を読み込みました: '+file.name+' ('+buf.duration.toFixed(1)+'秒 / メモリ約'+(buf.length*buf.numberOfChannels*4/1048576).toFixed(0)+'MB)'+(kept?'':' ※この端末には保存できませんでした')}
   catch(e){const m=(e&&e.name==='EncodingError')?'対応していない形式か、壊れたファイルです':((e&&e.message)||String(e));$('st').textContent='音声の読み込み失敗: '+m;alert('音声を読み込めませんでした: '+m)}}
-async function loadAudioFiles(){const ids=new Set();for(const tr of AT())for(const c of tr.clips)ids.add(c.f);let miss=0;
-  for(const id of ids){if(AFILES.has(id))continue;try{const v=await idbA('get',id);if(!v)throw 0;const buf=await decodeBytes(v.data);AFILES.set(id,{name:v.name,buf,peaks:mkPeaks(buf)})}catch(e){miss++}}
+const LAFB=new Set();
+async function loadAudioFiles(){if(EMBED_AUTO)return; // オートメーション窓は音を出さないので音声を展開しない
+  const ids=new Set();for(const tr of AT())for(const c of tr.clips)ids.add(c.f);let miss=0;
+  for(const id of ids){if(AFILES.has(id)||LAFB.has(id))continue;LAFB.add(id);try{const v=await idbA('get',id);if(!v)throw 0;const buf=await decodeBytes(v.data,true);AFILES.set(id,{name:v.name,buf,peaks:mkPeaks(buf)})}catch(e){miss++}finally{LAFB.delete(id)}}
   if(ids.size){draw();if(miss)$('st').textContent='音声データ'+miss+'件が見つかりません(JSON読込や保存失敗の可能性。音声を再読込してください)'}}
 function renderATracks(){const el=$('atl');el.innerHTML='';
   AT().forEach((tr,i)=>{const d=document.createElement('div');d.className='trk'+(seEd.tr===tr&&!seo.hidden?' sel':'');
@@ -1790,7 +1826,9 @@ const yieldUI=()=>new Promise(r=>setTimeout(r,0));
 let libRT=0;function libRenderSoon(){if(libRT)return;libRT=setTimeout(()=>{libRT=0;try{libRender()}catch(_){}},150)}
 const PIANO_EMBED=new URLSearchParams(location.search).get('pianoEmbed')==='1';
 const SF_LAZY=PIANO_EMBED; // ピアノロール窓は、再生/書き出し/試し聴きのときだけ読む(本体と二重にメモリを使わない)
-const SFBUD=(()=>{let dm=+navigator.deviceMemory||0;if(!dm)dm=(window.matchMedia&&matchMedia('(pointer:coarse)').matches)?2:4;return Math.max(96,Math.min(512,dm*96))*1048576})();
+const SFBUD=(()=>{let dm=+navigator.deviceMemory||0;if(!dm)dm=(window.matchMedia&&matchMedia('(pointer:coarse)').matches)?2:4;return Math.max(96,Math.min(320,dm*64))*1048576})();
+const SFHARD=SFBUD*1.5; // 絶対上限: 固定(pin)された音色でもこれを超えて展開しない(超えるとメモリ不足でデバイスごと落ちるため)
+let SFWARN2=0;
 const SFQ=[],SFLIVE=[];let SFBUSY=0,SFTICK=0,SFMEM=0,SFWARN=0,SFLY=0,SFSHOW=0,SFPW=null,SFSKIP=false,WT=null,WLAST=0,WDIRTY=false;
 const sfPending=()=>SFQ.length+SFBUSY;
 // Blobから、内容で同一性を判定(ファイル名に依存しない)。従来の sfFp と同じ結果になる(既存の登録とIDが一致): サイズ+先頭/末尾/等間隔サンプルのハッシュ
@@ -1812,6 +1850,7 @@ function sfEvict(need){let g=0;while(SFMEM+need>SFBUD&&g++<5000){let bk=-1,bl=In
 function sfDrop(sf){for(let k=SFLIVE.length-1;k>=0;k--){const e=SFLIVE[k];if(e.sf!==sf)continue;const s=sf.samples[e.i];if(s.buf)SFMEM-=s.buf.length*4;s.buf=undefined;SFLIVE.splice(k,1)}}
 async function sfDecode(sf,i,s){const n=s.end-s.start;
   if(n<8||sf.smplOff+s.end*2>sf.size){s.buf=null;return}
+  sfEvict(n*4);if(SFMEM+n*4>SFHARD){s.buf=null;if(!SFWARN2){SFWARN2=1;libLog('音色データがメモリの上限('+MB(SFHARD)+')に達したため、一部の音色を読み込みませんでした。使う音色を減らすか、使っていないSF2を解放してください','warn')}return}
   const raw=await sf.blob.slice(sf.smplOff+s.start*2,sf.smplOff+s.end*2).arrayBuffer(); // このサンプル分だけをディスクから読む
   if(!sf.alive)return;if(raw.byteLength<n*2){s.buf=null;return}
   sfEvict(n*4);
@@ -1897,17 +1936,17 @@ async function libAddFiles(files){
       L.msg=file.name+': '+(re?'再接続しました':'追加しました')+' — '+sf.presets.length+'プリセット / '+MB(file.size)+(ent.stored?' / ブラウザに保存済み':' / 保存なし(再起動後は再選択が必要)')+note;L.cls=note?'warn':'ok';
       if(!S.sf2)S.sf2=file.name;LIB.selFile=ent.id;
       const t=S.tracks[sel];if(t&&!t.sf){const pr=sf.pmap.get('0:0')||sf.presets[0];t.sf={f:id,b:pr.b,p:pr.p,n:pr.name,fn:ent.dn||ent.name};dirty()}
-      libBindLegacy();renderTracks();warmTracks();libSave();}
+      libBindLegacy();renderTracks();warmTracks();libSave();setTimeout(()=>libAnnounce(ent),800)}
     catch(e){L.msg=file.name+': 失敗 — '+e.message;L.cls='err'}
     libRender();await yieldUI()}
   libSave()}
 const LOADP=new Map();
 function libLoadStored(f){if(f.sf)return Promise.resolve();let p=LOADP.get(f.id);if(p)return p;
-  p=(async()=>{f.state='loading';f.prog=0;libRender();
+  p=(async()=>{f.state='loading';f.prog=0;if(f.size>256*1048576)libLog((f.dn||f.name)+': 大きいSF2('+MB(f.size)+')を読み込みます。解析のみで、音色データは必要な分だけ後から展開します','warn');libRender();
     try{let raw=await idbS('sfb','get',f.id);if(!raw){f.stored=false;throw new Error('ブラウザ内に保存データがありません。SF2を再選択してください')}
       if(!(raw instanceof Blob)){ // 旧形式(ArrayBuffer)で保存されたもの: Blobにして保存し直す(以後はディスク上のまま扱える)
         const b=new Blob([raw]);raw=b;idbPutSrc(f.id,b).then(()=>idbS('sfb','get',f.id)).then(sb=>{if(sb instanceof Blob&&f.sf&&sb.size===b.size)f.sf.setBlob(sb)}).catch(()=>{})}
-      const sf=await parseSF2(raw,x=>{f.prog=x;libRenderSoon()});libAttach(f,sf);f.prog=1;f.errT=0}
+      const sf=await parseSF2(raw,x=>{f.prog=x;libRenderSoon()});raw=null;libAttach(f,sf);f.prog=1;f.errT=0;libAnnounce(f)}
     catch(e){f.state='unloaded';f.err=e.message;f.errT=Date.now();libLog((f.dn||f.name)+': '+e.message,'err')}
     finally{LOADP.delete(f.id)}libRender()})();
   LOADP.set(f.id,p);return p}
@@ -1920,38 +1959,51 @@ async function libMergeMeta(ids){try{const m=await idbS('sfl','get','meta');if(!
         LIB.files.set(id,libEntry({id,name:String(x.name||''),dn:String(x.dn||x.name||''),size:+x.size||0,folder:fo,fav:!!x.fav,stored:!!x.stored,added:+x.added||0}));ch=true}
       else if(!cur.stored&&x.stored){cur.stored=true;ch=true}}
     return ch}catch(e){return false}}
-/* トラックが使うSF2を、足りなければ自動で読み込む(1ファイルずつ・UIに処理を返しながら)。
-   ・トラックの音源をどのウィンドウで変えても、再読込なしでその場で反映される
-   ・読み込みが終わるまでは内蔵シンセ、終わった瞬間から次のノートでSF2の音に切り替わる */
-let SYNCB=false,SYNCA=false,SYNCR=0,SYNCT=null,METAT=0;
-async function libSyncProject(){
-  if(typeof EMBED_AUTO!=='undefined'&&EMBED_AUTO)return; // オートメーション窓は音を鳴らさないので読み込まない(メモリ節約)
-  if(SYNCB){SYNCA=true;return}
-  SYNCB=true;let pending=false,loaded=false;
-  try{do{SYNCA=false;pending=false;
-      const ids=libNeedIds();
-      if(Date.now()-METAT>1200&&[...ids].some(id=>{const f=LIB.files.get(id);return !f||(!f.sf&&!f.stored)})){METAT=Date.now();await libMergeMeta(ids)}
-      for(const id of ids){const f=LIB.files.get(id);
-        if(!f||(!f.sf&&!f.stored)){pending=true;continue}
-        if(f.sf)continue;
-        if(f.errT&&Date.now()-f.errT<15000)continue; // 直前に失敗したものは、すぐには再試行しない
-        await libLoadStored(f);if(f.sf)loaded=true;else if(!f.err)pending=true}
-      libBindLegacy()}while(SYNCA)}
-  catch(e){console.warn('SF2 sync',e)}
-  finally{SYNCB=false}
-  if(loaded){LIBVER++;renderTracks();warmTracks();libRender()}
-  clearTimeout(SYNCT);if(pending&&SYNCR<6){SYNCT=setTimeout(()=>{SYNCT=null;libSyncProject()},400*(++SYNCR))}else if(!pending)SYNCR=0}
-async function libEnsureForProject(){await libSyncProject();libBindLegacy();LIBVER++;renderTracks();libRender();warmTracks()}
-addEventListener('focus',()=>{SYNCR=0;libSyncProject().catch(()=>{})});
-document.addEventListener('visibilitychange',()=>{if(!document.hidden){SYNCR=0;libSyncProject().catch(()=>{})}});
-async function libInit(){try{const m=await idbS('sfl','get','meta');if(m)libApplyMeta(JSON.parse(m))}catch(e){libLog('ライブラリ情報を読み込めませんでした: '+e.message,'err')}await libEnsureForProject()}
+/* SF2の「登録情報」と「音源本体の読み込み」は別。
+   ・起動時・プロジェクトを開いたとき・タブ切替時に、SF2本体は自動で読み込まない(約500MBのSF2でもクラッシュさせないため)
+   ・本体の読み込みは、ユーザーが「読み込む」「使用中のSF2を読み込む」を押したときだけ行う
+   ・未読み込みのSF2をトラックが指していてもプロジェクトは開ける(読み込むまでは内蔵シンセで鳴る) */
+let METAT=0;
+async function libSyncProject(){ // 登録情報だけを同期する軽い処理(SF2本体は読み込まない)
+  if(typeof EMBED_AUTO!=='undefined'&&EMBED_AUTO)return;
+  try{const ids=libNeedIds();
+    if(Date.now()-METAT>1200&&[...ids].some(id=>{const f=LIB.files.get(id);return !f||(!f.sf&&!f.stored)})){METAT=Date.now();await libMergeMeta(ids)}
+    libBindLegacy()}
+  catch(e){console.warn('SF2 sync',e)}}
+function libReportUnloaded(){ // プロジェクトが使うSF2のうち未読み込みのものを状態表示で知らせる(読み込みはしない)
+  try{const ids=[...libNeedIds()],u=ids.filter(id=>{const f=LIB.files.get(id);return !f||!f.sf}).length;
+    if(u>0&&!playing)$('st').textContent='このプロジェクトのSF2('+u+'件)は未読み込みです。SF2ライブラリの「使用中のSF2を読み込む」で読み込めます(それまでは内蔵シンセで鳴ります)'}catch(_){}}
+async function libLoadUsed(){ // ユーザー操作: プロジェクトで使うSF2を1ファイルずつ読み込む
+  await libSyncProject();let ok=0,ng=0,miss=0;
+  for(const id of libNeedIds()){const f=LIB.files.get(id);if(!f){miss++;continue}if(f.sf)continue;
+    if(!f.stored){ng++;libLog((f.dn||f.name)+': ブラウザに保存されていません。「SF2追加」で同じファイルを選び直してください','warn');continue}
+    await libLoadStored(f);if(f.sf)ok++;else ng++}
+  libBindLegacy();LIBVER++;renderTracks();warmTracks();libRender();libSave();
+  libLog('使用中のSF2を読み込みました: 成功'+ok+'件'+(ng?' / 失敗'+ng+'件':'')+(miss?' / 未登録'+miss+'件':''),ng||miss?'warn':'ok')}
+async function libEnsureForProject(){await libSyncProject();libBindLegacy();LIBVER++;renderTracks();libRender();warmTracks();libReportUnloaded()}
+addEventListener('focus',()=>{libSyncProject().catch(()=>{})});
+/* ---- ピアノロール窓(別インスタンス)との読み込み状態の共有 ----
+   ユーザーが親画面でSF2を読み込んだ後にだけ、ピアノロール窓も同じSF2を読み込む(起動時の自動読み込みはしない) */
+let SFCH=null;
+try{if(!EMBED_AUTO&&typeof BroadcastChannel!=='undefined')SFCH=new BroadcastChannel('bgm-notpc-sf-state-v1')}catch(_){SFCH=null}
+function libAnnounce(f){try{if(SFCH&&!PIANO_EMBED&&f&&f.sf)SFCH.postMessage({t:'loaded',id:f.id})}catch(_){}}
+function libAnnounceUnload(id){try{if(SFCH&&!PIANO_EMBED)SFCH.postMessage({t:'unloaded',id})}catch(_){}}
+function libSfFollowInit(){
+  if(!SFCH)return;
+  SFCH.onmessage=async e=>{const m=e.data;if(!m||(m.t!=='hello'&&typeof m.id!=='string'))return;
+    if(!PIANO_EMBED){if(m.t==='hello')for(const f of LIB.files.values())libAnnounce(f);return}
+    if(m.t==='loaded'){let f=LIB.files.get(m.id);if(!f||!f.stored){await libMergeMeta(new Set([m.id]));f=LIB.files.get(m.id)}
+      if(f&&!f.sf&&f.stored){await libLoadStored(f);renderTracks()}}
+    else if(m.t==='unloaded'){const f=LIB.files.get(m.id);if(f&&f.sf){f.sf.free();f.sf=null;f.state='unloaded';LIBVER++;renderTracks()}}};
+  if(PIANO_EMBED){try{SFCH.postMessage({t:'hello'})}catch(_){}}}
+async function libInit(){try{const m=await idbS('sfl','get','meta');if(m)libApplyMeta(JSON.parse(m))}catch(e){libLog('ライブラリ情報を読み込めませんでした: '+e.message,'err')}await libEnsureForProject();libSfFollowInit()}
 function libUnload(f){const used=S.tracks.filter(t=>t.sf&&t.sf.f===f.id).map(t=>t.name);
   if(used.length&&!confirm('トラック('+used.join(', ')+')がこのSF2を使っています。解放すると、読み込み直すまで内蔵シンセで鳴ります。続けますか?'))return;
-  if(f.sf)f.sf.free();f.sf=null;f.state='unloaded';LIBVER++;renderTracks();libRender()}
+  if(f.sf)f.sf.free();f.sf=null;f.state='unloaded';LIBVER++;libAnnounceUnload(f.id);renderTracks();libRender()}
 async function libUnreg(f){if(!confirm('「'+(f.dn||f.name)+'」をライブラリから登録解除します。\n(元のSF2ファイルは削除されません)'))return;
   let del=false;if(f.stored)del=confirm('このブラウザ内に保存したSF2のコピーも削除しますか?\nOK=コピーも削除 / キャンセル=コピーは残して登録だけ解除');
   if(del){try{await idbS('sfb','del',f.id)}catch(e){libLog('保存データを削除できませんでした: '+e.message,'err')}}
-  const used=S.tracks.filter(t=>t.sf&&t.sf.f===f.id).map(t=>t.name);if(f.sf)f.sf.free();LIB.files.delete(f.id);if(LIB.selFile===f.id)LIB.selFile=null;LIBVER++;
+  const used=S.tracks.filter(t=>t.sf&&t.sf.f===f.id).map(t=>t.name);if(f.sf)f.sf.free();libAnnounceUnload(f.id);LIB.files.delete(f.id);if(LIB.selFile===f.id)LIB.selFile=null;LIBVER++;
   if(used.length)libLog('注意: トラック('+used.join(', ')+')がこのSF2を参照しています。再追加するまで内蔵シンセで鳴ります','warn');libLog('登録解除しました: '+(f.dn||f.name)+(f.stored&&!del?'(保存データは残してあります)':''),'ok');libSave();renderTracks();libRender()}
 async function libStore(f,on){try{if(on){if(!f.sf||!f.sf.blob)throw new Error('先にSF2を読み込んでください');await idbPutSrc(f.id,f.src||f.sf.blob);f.stored=true;libLog('ブラウザに保存しました: '+(f.dn||f.name),'ok')}
     else{if(!confirm('ブラウザ内に保存したコピーを削除します(登録と、元のファイルは残ります)。よろしいですか?'))return;await idbS('sfb','del',f.id);f.stored=false;libLog('保存データを削除しました: '+(f.dn||f.name),'ok')}}
@@ -1990,7 +2042,7 @@ function libRender(){if($f('sfl').hidden)return;const sl=sflL.scrollTop,sr=sflR.
 const sflL=$f('sflL'),sflR=$f('sflR');
 function openLib(){LIB.tgt=sel;$f('sfl').hidden=false;document.body.classList.add('fxopen');libRender();window.BGMNotpcLMMSUI?.restoreSF2Library()}
 function closeLib(){$f('sfl').hidden=true;document.body.classList.remove('fxopen');renderTracks();window.BGMNotpcLMMSUI?.syncWindowButtons?.()}
-$('sflB').onclick=openLib;$f('sflClose').onclick=closeLib;$f('sflAdd').onclick=()=>$('sf2f').click();
+$('sflB').onclick=openLib;$f('sflClose').onclick=closeLib;$f('sflAdd').onclick=()=>$('sf2f').click();$f('sflUsed').onclick=()=>libLoadUsed();
 $f('sflQ').oninput=e=>{LIB.q=e.target.value;LIB.limit=200;libRender()};
 $f('sflOrd').onchange=e=>{LIB.order=e.target.value;libSave();renderTracks();libRender()};
 $f('sflFav').onchange=e=>{LIB.favOnly=e.target.checked;libRender()};$f('sflAuto').onchange=e=>{LIB.autoStore=e.target.checked;libSave()};
@@ -2180,7 +2232,7 @@ function resetProject(){
   pushUndo();
   for(const t of S.tracks){for(const e of (t.fx||[])){const n=FXN.get(e);if(n&&n.ds){try{n.ds()}catch(_){}}}const c=CH.get(t);if(c){for(const k of ['pan','vg','eg']){try{c[k]&&c[k].disconnect()}catch(_){}}}}
   for(const tr of AT()){const g=AG.get(tr);if(g){try{g.disconnect()}catch(_){}}}
-  S=fresh();updateTabTitle();sel=0;selNote=null;selSet.clear();sSel=null;selA=null;aSel=null;asel=new Set();EA=null;EQ=null;eaId=null;eqId=null;drag=null;playBeat=0;lastDur=1;bufObj=null;
+  bgmProjectHandle=null;S=fresh();updateTabTitle();sel=0;selNote=null;selSet.clear();sSel=null;selA=null;aSel=null;asel=new Set();EA=null;EQ=null;eaId=null;eqId=null;drag=null;playBeat=0;lastDur=1;bufObj=null;
   normS();LIBVER++;$('bpm').value=S.bpm;roll.scrollLeft=0;renderTracks();draw();dirty();upPos();$('st').textContent='プロジェクトをリセットしました(↶ で元に戻せます)'}
 $('reset').onclick=resetProject;
 /* ---------- アイコンボタン: 状態表示 / ツールチップ / アクセシビリティ ---------- */
@@ -2271,14 +2323,14 @@ if(window.ResizeObserver)new ResizeObserver(()=>draw()).observe(roll);
 window.BGMProjectIO={
   save:()=>bgmProjectSave(currentProjectName(),!bgmProjectHandle),
   saveAs:()=>bgmProjectSave(currentProjectName(),true),
-  open:()=>$('projectFile').click(),
-  saveBrowser:()=>saveDB(),
+  open:()=>bgmProjectOpenDialog(),
+  openRecent:()=>bgmProjectOpenRecent(),
   exportAudio:()=>openExport(),
   reset:()=>$('reset').click()
 };
 // Keep Song Editor and the independent Piano Roll instance on the same project data.
 const __bgmSyncId=Math.random().toString(36).slice(2);
-let __bgmApplyingShared=false,__bgmSyncTimer=null;
+let __bgmApplyingShared=false,__bgmSyncTimer=null,__gotShared=false;
 let __bgmChannel=null;
 try{if('BroadcastChannel' in window)__bgmChannel=new BroadcastChannel('bgm-notpc-project-sync-v1')}catch(_){__bgmChannel=null}
 window.__BGMGetProjectSnapshot=()=>snap();
@@ -2296,17 +2348,20 @@ window.__BGMFlushSharedSync=()=>{clearTimeout(__bgmSyncTimer);__bgmSyncTimer=nul
 let __pendingShared=null;
 function __applyShared(data){
   try{
-    __bgmApplyingShared=true;S=JSON.parse(data);normS();if(!S.projectName)S.projectName='BGM';
+    __bgmApplyingShared=true;__gotShared=true;S=JSON.parse(data);normS();if(!S.projectName)S.projectName='BGM';
     sel=Math.max(0,Math.min(sel,S.tracks.length-1));selNote=null;selSet.clear();
     EP=S.patterns.find(p=>p.id===S.edit)||S.patterns[0]||null;bufObj=null;NC=null;AC=null;autoResyncSoon();
     $('bpm').value=S.bpm;updateTabTitle();renderTracks();
     if(EMBED_AUTO&&typeof autoReapplySel==='function')autoReapplySel();
     draw();
     try{libSyncProject().catch(()=>{});warmSoon()}catch(_){}
+    if(PIANO_EMBED)loadAudioFiles(); // ピアノロール窓で再生するときのため(読み込み済みは再展開しない)
+    else if(!EMBED_AUTO&&__bootDone)PROJ_UNSAVED=true; // 他の窓での編集もメイン画面の未保存として扱う
   }catch(err){console.warn('Shared project sync failed',err)}finally{__bgmApplyingShared=false}
 }
 if(__bgmChannel)__bgmChannel.addEventListener('message',e=>{
-  const m=e.data;if(!m||m.type!=='project'||m.sender===__bgmSyncId||typeof m.data!=='string')return;
+  const m=e.data;if(m&&m.type==='request-project'&&m.sender!==__bgmSyncId){if(!EMBED_AUTO&&!PIANO_EMBED)window.__BGMFlushSharedSync();return} // ピアノロール窓の初期同期要求
+  if(!m||m.type!=='project'||m.sender===__bgmSyncId||typeof m.data!=='string')return;
   if(!__fresh(m.sender,m.seq))return;
   if(EMBED_AUTO&&adr){__pendingShared=m.data;return} // 制御点のドラッグ中は終了後に反映
   __applyShared(m.data);
@@ -2396,11 +2451,18 @@ if(EMBED_AUTO){
       if(!dt&&!dV)return;pushUndo();for(const p of L){p.t=Math.round((p.t+dt)*1e5)/1e5;p.v=clampV(p.v+dV)}sortPts();dirty();draw()}
   });
 }
-loadDB().then(()=>{
-  $('roll').scrollTop=(HI-1-76)*RH;loadAudioFiles();libInit();
+function __bootApp(){
+  startFresh(); // 起動時にブラウザ内のプロジェクトは復元しない(新規プロジェクトで開始)
+  $('roll').scrollTop=(HI-1-76)*RH;loadAudioFiles();libInit(); // libInit: SF2の「登録情報」だけを読む(本体は読み込まない)
   if(EMBED_AUTO){setView('auto');$('abar').style.display='flex';autoEmbedInit()}
-  if(__bgmChannel&&!EMBED_AUTO){setTimeout(()=>{try{__bgmChannel.postMessage({type:'project',sender:__bgmSyncId,data:snap()})}catch(_){}},120)}
-});;
+  if(PIANO_EMBED&&__bgmChannel){ // ピアノロール窓: メイン画面に現在のプロジェクトを要求する(空の初期状態をメイン画面へ送らない)
+    const ask=()=>{if(__gotShared)return;try{__bgmChannel.postMessage({type:'request-project',sender:__bgmSyncId})}catch(_){}};
+    ask();setTimeout(ask,500);setTimeout(ask,2000)}
+  else if(__bgmChannel&&!EMBED_AUTO){setTimeout(()=>{try{__bgmChannel.postMessage({type:'project',sender:__bgmSyncId,data:snap()})}catch(_){}},120)}
+  PROJ_UNSAVED=false;__bootDone=true;
+}
+// song-editor.js / lmms-ui.js が読み込まれた後(DOMContentLoaded)に開始する
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',__bootApp);else setTimeout(__bootApp,0);
 
 /* ===== 選択トラックの共有 (親画面 / Piano Roll / 他ウィンドウ) =====
    Piano Roll は別インスタンスで `sel` を個別に持つため、Browser で選んだトラックと

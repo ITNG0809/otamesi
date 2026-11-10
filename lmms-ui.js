@@ -17,7 +17,7 @@
   document.body.insertBefore(menu,header);
   const dropdown=document.createElement('div');dropdown.id='lmmsDropdown';dropdown.hidden=true;document.body.appendChild(dropdown);
   const menus={
-    project:[['新規プロジェクト','lmms-new'],['プロジェクトを開く…','lmms-open'],['プロジェクトを保存','lmms-save'],['名前を付けて保存…','lmms-saveas'],['ブラウザ内に保存','lmms-browser-save'],['区切り','separator'],['音声を書き出す…','lmms-export-audio'],['MIDIを書き出す','mexp'],['MIDIを読み込む…','mimp']],
+    project:[['新規プロジェクト','lmms-new'],['プロジェクトを開く…','lmms-open'],['最近使ったプロジェクトを開く','lmms-open-recent'],['プロジェクトを保存','lmms-save'],['名前を付けて保存…','lmms-saveas'],['区切り','separator'],['音声を書き出す…','lmms-export-audio'],['MIDIを書き出す','mexp'],['MIDIを読み込む…','mimp']],
     edit:[['元に戻す','undo'],['やり直す','redo'],['全選択','sall'],['選択項目を削除','del']],
     view:[['Song Editor を開く','lmms-song-window'],['Piano Roll を開く','lmms-roll-window'],['Browser を表示 / 非表示','lmms-browser'],['Mixer を表示 / 非表示','lmms-mixer'],['編集ツールバー','lmms-toolbar'],['ベロシティレーン','lmms-velocity']],
     tools:[['SoundFont ライブラリ','sflB'],['自作エフェクト','fxs'],['MIDI 読み込み','mimp'],['MIDI 書き出し','mexp']],
@@ -30,7 +30,7 @@
     if(id==='lmms-open'){window.BGMProjectIO?.open();return}
     if(id==='lmms-save'){window.BGMProjectIO?.save();return}
     if(id==='lmms-saveas'){window.BGMProjectIO?.saveAs();return}
-    if(id==='lmms-browser-save'){window.BGMProjectIO?.saveBrowser();return}
+    if(id==='lmms-open-recent'){window.BGMProjectIO?.openRecent();return}
     if(id==='lmms-export-audio'){window.BGMProjectIO?.exportAudio();return}
     if(id==='lmms-browser'){browser.classList.remove('hid');browser.classList.toggle('lmms-hidden');syncWindowButtons();return}
     if(id==='lmms-mixer'){const el=$('#mx');if(el)el.classList.toggle('hid');return}

@@ -209,7 +209,6 @@ aside{min-width:0;overflow-x:hidden}
 :root[data-lmms="1"] main>aside.lmms-window>#tl{flex:1 1 auto;min-height:0;overflow:auto}
 :root[data-lmms="1"] main>aside.lmms-window>#atl{flex:0 1 auto;max-height:34%;overflow:auto;border-top:1px solid #171a1d}
 /* LMMS風: ファイル操作は上部の「ファイル」メニューに集約 */
-:root[data-lmms="1"] header #save,
 :root[data-lmms="1"] header #exp,
 :root[data-lmms="1"] header #imp,
 :root[data-lmms="1"] header #reset,
