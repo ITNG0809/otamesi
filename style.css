@@ -85,7 +85,7 @@ body.fxopen{overflow:hidden}
 .dd>button:disabled{opacity:.5;cursor:not-allowed}.dd>button:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
 .dd-native{display:none!important}
 .trk .dd,.fx .dd{width:100%}.fxt .dd>button,.sflt .dd>button{min-height:38px}.sfh .dd>button{min-height:36px}
-.ddp{position:fixed;z-index:200;display:flex;flex-direction:column;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.3);opacity:0;transform:translateY(-6px) scale(.98);transform-origin:top;transition:opacity .13s ease,transform .13s ease;overflow:hidden;pointer-events:none;touch-action:pan-y}
+.ddp{position:fixed;z-index:100010;display:flex;flex-direction:column;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.3);opacity:0;transform:translateY(-6px) scale(.98);transform-origin:top;transition:opacity .13s ease,transform .13s ease;overflow:hidden;pointer-events:none;touch-action:pan-y}
 .ddp.up{transform-origin:bottom;transform:translateY(6px) scale(.98)}.ddp.open{opacity:1;transform:none;pointer-events:auto}
 .dds{padding:6px;border-bottom:1px solid var(--line)}.dds input{width:100%;min-height:38px}
 .ddl{overflow:auto;flex:1;min-height:0;padding:4px;overscroll-behavior:contain;outline:none;-webkit-overflow-scrolling:touch}
@@ -95,7 +95,7 @@ body.fxopen{overflow:hidden}
 .ddi[aria-disabled=true]{opacity:.45;cursor:not-allowed}.ddi .dk{width:16px;color:var(--acc);font-weight:bold;flex-shrink:0}.ddi .dic{width:22px;text-align:center;flex-shrink:0}
 .ddi .dt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}.ddi small{display:block;color:var(--mut);font-size:11px;white-space:normal}
 @media(prefers-reduced-motion:reduce){.ddp,.dd>button .dc{transition:none}}
-#xpo,#sepo,#sbpo{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:12px;background:rgba(0,0,0,.55);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);padding-top:max(12px,env(safe-area-inset-top,0px));padding-bottom:max(12px,env(safe-area-inset-bottom,0px))}
+#xpo,#sepo,#sbpo{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;padding:12px;background:rgba(0,0,0,.55);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);padding-top:max(12px,env(safe-area-inset-top,0px));padding-bottom:max(12px,env(safe-area-inset-bottom,0px))}
 #xpo[hidden],#sepo[hidden],#sbpo[hidden]{display:none!important}
 .xdlg{width:min(94vw,470px);max-height:100%;overflow:auto;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.45);padding:14px 16px;display:grid;gap:12px;overscroll-behavior:contain}
 .xdlg h2{margin:0;font-size:16px}.xdlg label{display:grid;gap:4px;font-size:12px;color:var(--mut)}.xdlg .xr{display:flex;gap:8px;align-items:center}.xdlg .xr>input[type=range]{flex:1;min-height:30px}
@@ -125,7 +125,7 @@ header .dd>button,.bar2 .dd>button{height:34px;min-height:34px;padding:0 8px}
 .seg{display:inline-flex}.seg button{height:34px;min-height:34px;padding:0 10px;border-radius:0;font-size:12px;margin-left:-1px}.seg button:first-child{border-radius:8px 0 0 8px;margin-left:0}.seg button:last-child{border-radius:0 8px 8px 0}.seg button.on{background:var(--acc);border-color:var(--acc);color:#fff;position:relative;z-index:1}
 .bar2{gap:5px;padding:4px 8px}.aact{display:flex;gap:6px;margin-bottom:8px}.aact .ib{flex:1}
 #dock{gap:4px;padding:2px 6px}#dock button.ib{height:28px;min-height:28px;padding:0 8px;font-size:12px}#dock .ic{width:16px;height:16px}
-#tip{position:fixed;z-index:300;pointer-events:none;opacity:0;transform:translateY(2px);transition:opacity .12s,transform .12s;background:#15181e;color:#f2f4f8;border:1px solid #3a4252;border-radius:7px;padding:5px 8px;font-size:12px;line-height:1.35;max-width:min(320px,92vw);box-shadow:0 6px 18px rgba(0,0,0,.35)}
+#tip{position:fixed;z-index:100020;pointer-events:none;opacity:0;transform:translateY(2px);transition:opacity .12s,transform .12s;background:#15181e;color:#f2f4f8;border:1px solid #3a4252;border-radius:7px;padding:5px 8px;font-size:12px;line-height:1.35;max-width:min(320px,92vw);box-shadow:0 6px 18px rgba(0,0,0,.35)}
 #tip.show{opacity:1;transform:none}#tip kbd{margin-left:8px;padding:1px 5px;border-radius:4px;background:#2b3240;border:1px solid #444d5f;font:11px/1.4 ui-monospace,monospace;color:#cfd6e4}
 @media(prefers-reduced-motion:reduce){#tip,button.ib{transition:none}}
 @media(max-width:700px){#dock button.ib .lb{display:none}}
@@ -222,7 +222,6 @@ aside{min-width:0;overflow-x:hidden}
 :root[data-lmms="1"] #roll{background:#1b1f22}
 :root[data-lmms="1"] #cv{display:block}
 :root[data-lmms="1"] #rc{min-width:320px}
-:root[data-lmms="1"] #sgbar{order:-1}
 :root[data-lmms="1"] #sgbar b{color:#d1d8e4}
 :root[data-lmms="1"] #sgbar button{min-height:27px;height:27px}
 
@@ -534,3 +533,26 @@ body.automation-embed #roll::-webkit-scrollbar-thumb{background:#3a444d;border-r
 #sgbar .sgbar2 button{min-width:30px}
 #sgbar .sgbar2 button.on{background:#17793b;border-color:#0d5a28;color:#fff}
 #sgbar .sgbar2 .hintline{display:none}
+
+
+/* ===== レイヤー整理(モーダルを常に最前面へ) =====
+   原因: main がスタッキングコンテキストを作らないため、main 内の下部タスクバー(z-index:80)や
+   Windowの z-index(動的に加算)がモーダル(z-index:70)より前に出ていた。
+   対策: main を独立したスタッキングコンテキストにして内部の z-index を閉じ込め、
+         モーダルは body 直下で z-index:100000、モーダル内のドロップダウン/ツールチップはさらにその上に置く。 */
+:root[data-lmms="1"] main{z-index:0;isolation:isolate}
+:root[data-lmms="1"] #lmmsMenu{z-index:90}
+:root[data-lmms="1"] #lmmsDropdown{z-index:500}
+.sg-pop{z-index:100005}
+
+/* ===== Song Editor: 専用の横スクロールバー(ウィンドウ内の下端) =====
+   トラックヘッダー幅(--sgh-w)と右の縦スクロールバー(30px)を除いた幅 = 編集領域の幅に合わせる */
+#rc>#hs{flex:0 0 24px;margin-right:30px;border-top:1px solid #14171a}
+#rc.sg-hdr-on>#hs{margin-left:var(--sgh-w)}
+
+/* ===== Piano Roll: 縦型ピアノ鍵盤 (piano-keys.js) ===== */
+#pk{display:none;flex:0 0 auto;align-self:flex-start;touch-action:none;-webkit-touch-callout:none;user-select:none;-webkit-user-select:none;cursor:pointer;background:#262b30}
+#rc.pk-on #pk{display:block}
+.pk-ctl{display:inline-flex;align-items:center;gap:5px;flex-shrink:0}
+.pk-ctl select{min-width:110px}
+body.piano-embed #pianoTools .pk-ctl{flex-shrink:0!important}

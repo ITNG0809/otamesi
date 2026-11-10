@@ -1102,8 +1102,10 @@ function drawSong(){
 }
 function setView(v){if(EMBED_AUTO&&v!=='auto')return;if(v===VIEW)return;syncBuf();svTop[VIEW]=roll.scrollTop;svLeft[VIEW]=roll.scrollLeft;VIEW=v;selSet.clear();selNote=null;drag=null;
   $('vlw').style.display=v==='roll'?'':'none';$('sgbar').style.display=v==='song'?'flex':'none';$('abar').style.display=v==='auto'?'flex':'none';
-  $('vSong').classList.toggle('on',v==='song');$('vRoll').classList.toggle('on',v==='roll');draw();roll.scrollTop=svTop[v];roll.scrollLeft=svLeft[v]||0;draw();syncSongBar();window.__BGMQueueSharedSync?.();window.__BGMOnViewChanged?.(v)}
-$('vSong').onclick=()=>{PAEdit=false;$('patAuto').classList.remove('on');$('patAutoKind').style.display='none';setView('song')};$('vRoll').onclick=()=>setView('roll');
+  {const _vs=$('vSong'),_vr=$('vRoll');if(_vs)_vs.classList.toggle('on',v==='song');if(_vr)_vr.classList.toggle('on',v==='roll')}draw();roll.scrollTop=svTop[v];roll.scrollLeft=svLeft[v]||0;draw();syncSongBar();window.__BGMQueueSharedSync?.();window.__BGMOnViewChanged?.(v)}
+function showSongView(){PAEdit=false;$('patAuto').classList.remove('on');$('patAutoKind').style.display='none';setView('song')}
+window.__BGMShowSong=showSongView; // 上部の切り替えボタンは廃止。ソング画面へ戻す処理は関数として残す
+{const _vs=$('vSong'),_vr=$('vRoll');if(_vs)_vs.onclick=showSongView;if(_vr)_vr.onclick=()=>setView('roll')}
 function openPattern(q){const P=S.patterns.find(p=>p.id===q.pid);if(!P)return;syncBuf();bufObj=null;EP=P;S.edit=P.id;sel=q.ti;selSet.clear();selNote=null;sSel=q;
   setView('roll');renderTracks();draw();roll.scrollLeft=0;$('st').textContent='パターン「'+P.name+'」を編集中(ソング画面に戻るとブロックに反映されます)'}
 function fitSong(){let mx=0;for(const q of S.place)mx=Math.max(mx,q.s+q.l);for(const q of S.aplace)mx=Math.max(mx,q.s+q.l);if(mx>S.len)S.len=Math.min(MAXBARS*4,Math.ceil(mx/4)*4);fitLen()}

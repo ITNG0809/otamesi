@@ -53,7 +53,7 @@
 <label class="hl">BPM <input id="bpm" type="number" min="40" max="240" value="120" aria-label="BPM"></label>
 <label class="hl">Master <input id="mvol" type="range" min="0" max="1.5" step=".01" value=".8" aria-label="マスターボリューム" style="width:84px"></label>
 <button id="loop" class="ib sq on" data-tip="ループ再生" aria-label="ループ再生" data-toggle="1"><svg class="ic" aria-hidden="true"><use href="#i-repeat"/></svg></button><button id="blockPlay" class="ib sq" data-tip="選択中のソングブロックだけ再生" aria-label="ブロック内を再生"><svg class="ic" aria-hidden="true"><use href="#i-play"/></svg></button><span class="sep"></span>
-<span class="seg"><button id="vSong" data-tip="ソング画面(曲全体の配置)" aria-label="ソング画面">ソング</button><button id="vRoll" class="on" data-tip="ピアノロール画面(音符の編集)" aria-label="ピアノロール画面">ピアノロール</button></span><span class="sep"></span>
+
 <button id="undo" class="ib sq" data-tip="元に戻す" data-key="Ctrl/⌘+Z" aria-label="元に戻す"><svg class="ic" aria-hidden="true"><use href="#i-undo"/></svg></button><button id="redo" class="ib sq" data-tip="やり直す" data-key="Ctrl/⌘+Shift+Z" aria-label="やり直す"><svg class="ic" aria-hidden="true"><use href="#i-redo"/></svg></button><span class="sep"></span>
 <label class="hl" style="display:flex;align-items:center;gap:5px">作品名 <input id="projectName" type="text" value="BGM" maxlength="100" style="width:140px;min-height:36px" aria-label="作品名"></label><button id="exp" class="ib lbl" data-tip="プロジェクトをJSONで書き出す" aria-label="プロジェクトをJSONで書き出す"><svg class="ic" aria-hidden="true"><use href="#i-file-down"/></svg><span class="lb">JSON</span></button><button id="imp" class="ib lbl" data-tip="プロジェクトをJSONから読み込む" aria-label="プロジェクトをJSONから読み込む"><svg class="ic" aria-hidden="true"><use href="#i-file-up"/></svg><span class="lb">JSON</span></button><button id="reset" class="ib sq danger" data-tip="プロジェクトをリセット(初期状態に戻す)" aria-label="プロジェクトをリセット(初期状態に戻す)"><svg class="ic" aria-hidden="true"><use href="#i-reset"/></svg></button><span class="sep"></span>
 <button id="sf2b" class="ib lbl sf2-button" data-tip="SF2音源ファイルを読み込む(複数可)" aria-label="SF2音源ファイルを読み込む(複数可)"><span class="sf2-badge" aria-hidden="true">SF2</span><span class="lb">音源を追加</span></button><button id="sflB" class="ib lbl sf2-button" data-tip="SF2ライブラリを開く" aria-label="SF2ライブラリを開く"><span class="sf2-badge" aria-hidden="true">SF2</span><span class="lb">音源ライブラリ</span></button><span class="sep"></span>
@@ -124,6 +124,7 @@
 <input type="file" id="audf" accept="audio/*,.wav,.mp3,.ogg,.m4a,.flac" hidden>
 <script src="script.js"></script>
 <script src="song-editor.js"></script>
+<script src="piano-keys.js"></script>
 <script src="lmms-ui.js"></script>
 </body>
 </html>

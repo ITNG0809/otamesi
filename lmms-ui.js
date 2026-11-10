@@ -144,6 +144,8 @@
   const songWinEl=document.createElement('section');songWinEl.id='lmms-song-window';songWinEl.className='lmms-editor-host';main.appendChild(songWinEl);
   const rollWinEl=document.createElement('section');rollWinEl.id='lmms-roll-window';rollWinEl.className='lmms-editor-host';main.appendChild(rollWinEl);
   songWinEl.appendChild(editor);
+  // 横スクロールバー(#hs)はソングエディターのウィンドウ内(下端)へ移す。ドラッグ/追従のロジックは script.js のまま共通
+  {const hsEl=document.getElementById('hs');if(hsEl)editor.appendChild(hsEl);try{if(window.ResizeObserver&&hsEl)new ResizeObserver(()=>window.dispatchEvent(new Event('resize'))).observe(songWinEl)}catch(_){}}
   const rollFrame=document.createElement('iframe');rollFrame.id='lmms-piano-frame';rollFrame.title='Piano Roll editor';const rollUrl=new URL(location.href);rollUrl.searchParams.set('pianoEmbed','1');rollFrame.src=rollUrl.href;
   rollWinEl.appendChild(rollFrame);
   const autoWinEl=document.createElement('section');autoWinEl.id='lmms-auto-window';autoWinEl.className='lmms-editor-host';main.appendChild(autoWinEl);
@@ -186,10 +188,17 @@
     if(!autoReady||autoWinEl.classList.contains('lmms-hidden')||autoWinEl.classList.contains('lmms-minimized'))return;
     const t=window.__BGMAutoApi?.getTransport();if(!t)return;const k=(t.playing?1:0)+'|'+t.beat.toFixed(4);
     if(k===lastTransport)return;lastTransport=k;postAuto('transport',{playing:t.playing,beat:t.beat})})();
+  // Piano Roll 窓へ再生状態(位置・再生中)を配信: 鍵盤の「再生中の音符を光らせる」用。窓が見えている間だけ、変化があったときのみ
+  let lastPianoTr='';
+  (function tickPiano(){requestAnimationFrame(tickPiano);
+    if(rollWinEl.classList.contains('lmms-hidden')||rollWinEl.classList.contains('lmms-minimized'))return;
+    const t=window.__BGMAutoApi?.getTransport();if(!t)return;const k=(t.playing?1:0)+'|'+t.beat.toFixed(4);
+    if(k===lastPianoTr)return;lastPianoTr=k;
+    try{rollFrame.contentWindow&&rollFrame.contentWindow.postMessage({ns:'bgm-piano',v:1,type:'transport',playing:t.playing,beat:t.beat},AUTO_TARGET)}catch(_){}})();
   function openAutomationWindow(){autoWin.restore();lastTransport='';pushAutoSelection();syncWindowButtons()}
   function openEditorView(view){
     if(view==='song'){
-      const b=$('#vSong');if(b&&!b.classList.contains('on'))b.click();
+      ensureSong();
       songWin.restore();
     }else{
       rollWin.restore();
@@ -214,11 +223,9 @@
     task.querySelector('[data-restore="effects"]')?.classList.toggle('active',!!fxWinEl&&!fxWinEl.hidden&&!fxWinEl.classList.contains('lmms-minimized'));
   }
   // Keep the parent instance on the arrangement view; the Piano Roll iframe owns its own live canvas.
-  const vs=$('#vSong'),vr=$('#vRoll');
-  if(vs&&!vs.classList.contains('on'))vs.click();
-  vs?.addEventListener('click',()=>setTimeout(()=>{if(!vs.classList.contains('on'))vs.click()},0));
-  vr?.addEventListener('click',()=>setTimeout(()=>{openEditorView('roll');if(vs&&!vs.classList.contains('on'))vs.click()},0));
-  window.__BGMOnViewChanged=v=>{if(v==='roll'){setTimeout(()=>{openEditorView('roll');if(vs&&!vs.classList.contains('on'))vs.click()},0)}else if(v==='auto'){setTimeout(()=>{openAutomationWindow(window.__BGMGetAutoSelection?.());if(vs&&!vs.classList.contains('on'))vs.click()},0)}};
+  const ensureSong=()=>{if(window.__BGMGetView?.()!=='song')window.__BGMShowSong?.()};
+  ensureSong();
+  window.__BGMOnViewChanged=v=>{if(v==='roll'){setTimeout(()=>{openEditorView('roll');ensureSong()},0)}else if(v==='auto'){setTimeout(()=>{openAutomationWindow(window.__BGMGetAutoSelection?.());ensureSong()},0)}};
   const trBtn=document.querySelector('#dock [data-pn="tr"]');if(trBtn)trBtn.addEventListener('click',()=>{browser.classList.toggle('lmms-hidden',browser.classList.contains('hid'));syncWindowButtons()});
   addEventListener('resize',()=>{const r=main.getBoundingClientRect();[browser,songWinEl,rollWinEl,autoWinEl,sf2WinEl,fxWinEl].filter(Boolean).forEach(el=>{if(el.classList.contains('lmms-maximized'))return;const left=parseFloat(el.style.left)||0,top=parseFloat(el.style.top)||0;if(left>r.width-90)el.style.left=Math.max(0,r.width-220)+'px';if(top>r.height-40)el.style.top=Math.max(0,r.height-120)+'px'});});
   window.BGMNotpcLMMSUI={restoreBrowser:browserWin.restore,restoreSongEditor:()=>openEditorView('song'),restorePianoRoll:()=>openEditorView('roll'),restoreAutomation:()=>openAutomationWindow(),restoreSF2Library:()=>{if(sf2Win){sf2Win.restore();sf2WinEl.hidden=false;syncWindowButtons()}},restoreEffects:()=>{if(fxWin){fxWin.restore();fxWinEl.hidden=false;syncWindowButtons()}},syncWindowButtons,openSongEditor:()=>openEditorView('song'),openPianoRoll:()=>openEditorView('roll')};
