@@ -150,8 +150,6 @@ aside{min-width:0;overflow-x:hidden}
 
 
 /* ブロック内オートメーション: 既存の配色変数を使用し、ライト/ダーク自動追従 */
-#patAuto.on{background:var(--acc);color:#fff;border-color:var(--acc)}
-#patAutoKind{max-width:110px}
 .autoed{outline:2px solid #d4a017;outline-offset:1px;border-radius:3px}
 #abar select{max-width:240px}
 
@@ -556,3 +554,14 @@ body.automation-embed #roll::-webkit-scrollbar-thumb{background:#3a444d;border-r
 .pk-ctl{display:inline-flex;align-items:center;gap:5px;flex-shrink:0}
 .pk-ctl select{min-width:110px}
 body.piano-embed #pianoTools .pk-ctl{flex-shrink:0!important}
+
+/* ===== ベロシティレーン ===== */
+#vlw{position:relative;box-sizing:border-box;border-top:2px solid #14171a;box-shadow:0 -1px 0 #4a525c}
+#vlw #vlh{position:absolute;left:0;right:0;top:-5px;height:9px;z-index:3;cursor:ns-resize;touch-action:none}
+#vlw #vlh::after{content:"";position:absolute;left:50%;top:3px;width:36px;height:3px;margin-left:-18px;border-radius:2px;background:#5a6470;opacity:.8}
+#vlw #vlh:hover::after,#vlw #vlh:focus-visible::after{background:var(--acc,#2fbf71);opacity:1}
+@media (pointer:coarse){#vlw #vlh{top:-10px;height:20px}#vlw #vlh::after{top:8px;width:48px;height:4px;margin-left:-24px}}
+/* 鍵盤を出している間は、音符グリッドの左端(=鍵盤の右端)に合わせて下のレーンも右へずらす */
+#rc.pk-on #vlw,#rc.pk-on #alw{padding-left:var(--pk-w,76px)}
+#rc.pk-on #vlw::before{content:"VEL";position:absolute;left:0;bottom:6px;width:var(--pk-w,76px);text-align:center;font-size:10px;letter-spacing:.08em;color:var(--mut)}
+#vl{display:block}

@@ -2,7 +2,7 @@
 "use strict";
 let BW=48,RH=16;const LO=0,HI=128,ROWS=HI-LO,SNAP=0.25,LEN=16;
 let S,sel=0,selNote=null,undo=[],redo=[],lastDur=1,playing=false,playBeat=0,loop=true,blockPlayback=null;
-let PA=null,PAEdit=false,PAKind='vol',PADrag=false;
+let PA=null;
 let ctx=null,master=null,nextBeat=0,nextTime=0,startT=0,timer=null;
 const $=id=>document.getElementById(id);
 /* ---- オートメーション専用iframe(autoEmbed=1)との連携 ---- */
@@ -22,7 +22,9 @@ function initAudio(){
   ctx.resume();
 }
 function bindPb(t,par,node,bus){try{const pb=getCh(t)[bus||'pb'];pb.connect(par);node.addEventListener('ended',()=>{try{pb.disconnect(par)}catch(_){}})}catch(_){}}
-function voice(t,p,v,when,dur){PC=(VB==null||!(PA&&PA.p))?null:pitchCurve(t,VB,dur/spb());if(PA&&PA.p){const av=patAutoVal(PA.p,PA.b,'vol');v=Math.max(0,Math.min(127,v*av));const ev=patAutoVal(PA.p,PA.b,'echo');try{const ch=getCh(t);ch.eg.gain.setValueAtTime(Math.max(0,Math.min(1,ev)),when)}catch(_){}}if(t.sf&&sfRes(t))sfVoice(t,p,v,when,dur);else synthVoice(t,p,v,when,dur);PC=null;PA=null}
+/* ベロシティ正規化: 未設定(旧形式)は100、0〜127に丸める(0は無音) */
+function normVel(v){if(v==null||v==='')return 100;const x=Math.round(+v);return isFinite(x)?Math.max(0,Math.min(127,x)):100}
+function voice(t,p,v,when,dur){if(!(v>0)){PA=null;PC=null;return}PC=(VB==null||!(PA&&PA.p))?null:pitchCurve(t,VB,dur/spb());if(PA&&PA.p){const av=patAutoVal(PA.p,PA.b,'vol');v=Math.max(0,Math.min(127,v*av));const ev=patAutoVal(PA.p,PA.b,'echo');try{const ch=getCh(t);ch.eg.gain.setValueAtTime(Math.max(0,Math.min(1,ev)),when)}catch(_){}}if(t.sf&&sfRes(t))sfVoice(t,p,v,when,dur);else synthVoice(t,p,v,when,dur);PC=null;PA=null}
 function synthVoice(t,p,v,when,dur){
   const o=ctx.createOscillator(),f=ctx.createBiquadFilter(),g=ctx.createGain();
   o.type=t.wave;o.frequency.value=440*Math.pow(2,(p-69)/12);bindPb(t,o.detune,o);if(PC)applyDet(o.detune,when,PC);
@@ -139,7 +141,7 @@ const isBlack=p=>[1,3,6,8,10].includes(p%12);
 const NN=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 function normS(){
   if(!S||!Array.isArray(S.tracks)||!S.tracks.length)S=fresh();
-  fixPatterns();seClean();let mx=0;for(const pl of S.place)mx=Math.max(mx,pl.s+pl.l);for(const pl of S.aplace||[])mx=Math.max(mx,pl.s+pl.l);for(const t of S.tracks){t.notes=Array.isArray(t.notes)?t.notes:[];for(const n of t.notes){mx=Math.max(mx,n.s+n.d);n.v=Math.max(1,Math.min(127,Math.round(n.v)||100))}}
+  fixPatterns();seClean();let mx=0;for(const pl of S.place)mx=Math.max(mx,pl.s+pl.l);for(const pl of S.aplace||[])mx=Math.max(mx,pl.s+pl.l);for(const t of S.tracks){t.notes=Array.isArray(t.notes)?t.notes:[];for(const n of t.notes){mx=Math.max(mx,n.s+n.d);n.v=normVel(n.v)}}
   S.atracks=Array.isArray(S.atracks)?S.atracks:[];for(const tr of S.atracks){tr.clips=Array.isArray(tr.clips)?tr.clips:[];for(const c of tr.clips)mx=Math.max(mx,c.s+c.d*(S.bpm||120)/60)}
   let L=Number(S.len);if(!isFinite(L)||L<4)L=16;L=Math.max(L,mx);
   S.len=Math.min(MAXBARS*4,Math.ceil(L/4)*4);
@@ -194,7 +196,7 @@ function drawRoll(){
   if(W-sx<vw-40){g2.fillStyle=C.mut;g2.font='12px system-ui';g2.fillText('タップで小節を追加 →',W-sx+10,RULER+22)}
   $('info').textContent=selSet.size>1?selSet.size+'音符を選択中':selNote?`${NN[selNote.p%12]}${Math.floor(selNote.p/12)-1}  長さ ${selNote.d}拍`:'';
   if(document.activeElement!==$('bars'))$('bars').value=S.len/4;
-  updateHS();updateVS();drawVL();drawAL();drawPatternAutomationOverlay();
+  updateHS();updateVS();drawVL();drawAL();
 }
 let drag=null,MODE='draw',CLIP=null;const selSet=new Set();
 const TAPDEL=true;const TP=new Map();let pinch=null;
@@ -240,7 +242,7 @@ cv.addEventListener('pointerdown',e=>{
   }
   else{const p=HI-1-Math.floor(y/RH);if(p<LO||p>=HI){undo.pop();return}
     const s=Math.max(0,Math.min(S.len-lastDur,Math.floor(x/BW/GRID+1e-9)*GRID));
-    n={p,s,d:lastDur,v:100};t.notes.push(n);selSet.clear();selSet.add(n);picked=[n]}
+    n={p,s,d:lastDur,v:defVel};t.notes.push(n);selSet.clear();selSet.add(n);picked=[n]}
   selNote=n;sfPreview(t,n.p,n.v,.25);
   const snap=[...selSet].map(m=>({m,s:m.s,p:m.p,d:m.d}));
   drag={mode,n,ox:x/BW-n.s,moved:false,n0s:n.s,n0p:n.p,was,mod,cx:e.clientX,cy:e.clientY,snap,
@@ -299,7 +301,7 @@ const endDrag=e=>{if(e&&TP.has(e.pointerId))TP.delete(e.pointerId);if(pinch){if(
 function tapErase(n){const t=S.tracks[sel];t.notes=t.notes.filter(x=>x!==n);selSet.delete(n);if(selNote===n)selNote=null;draw();dirty();$('st').textContent='音符を削除しました(空いた場所をタップで追加 / ↶で元に戻せます)'}
 function tapAdd(x,y){const t=S.tracks[sel];pushUndo();if(x>=S.len*BW)S.len=Math.min(MAXBARS*4,Math.ceil(x/BW/4)*4);
   const p=HI-1-Math.floor(y/RH);if(p<LO||p>=HI){undo.pop();return}
-  const s2=Math.max(0,Math.min(S.len-lastDur,Math.floor(x/BW/GRID+1e-9)*GRID)),n={p,s:s2,d:lastDur,v:100};t.notes.push(n);selSet.clear();selSet.add(n);selNote=n;sfPreview(t,n.p,n.v,.25);draw();dirty()}
+  const s2=Math.max(0,Math.min(S.len-lastDur,Math.floor(x/BW/GRID+1e-9)*GRID)),n={p,s:s2,d:lastDur,v:defVel};t.notes.push(n);selSet.clear();selSet.add(n);selNote=n;sfPreview(t,n.p,n.v,.25);draw();dirty()}
 function tapPan(e){const d=drag;if(!d.moved&&Math.hypot(e.clientX-d.cx,e.clientY-d.cy)<8)return;d.moved=true;d.mode='pan';roll.scrollLeft=d.sl-(e.clientX-d.cx);roll.scrollTop=d.st-(e.clientY-d.cy)}
 function startPinch(){const[a,b]=[...TP.values()];drag=null;pinch={dx:Math.max(20,Math.abs(a.x-b.x)),dy:Math.max(20,Math.abs(a.y-b.y)),zh,zv}}
 function pinchMove(){const v=[...TP.values()];if(v.length<2)return;const dx=Math.abs(v[0].x-v[1].x),dy=Math.abs(v[0].y-v[1].y);if(dx>=20)zoomH(pinch.zh*dx/pinch.dx);if(dy>=20)zoomV(pinch.zv*dy/pinch.dy)}
@@ -813,7 +815,7 @@ function exportMidi(){
   const parts=[head,mk([{t:0,o:0,b:[0xFF,0x51,3,us>>16&255,us>>8&255,us&255]},{t:0,o:0,b:[0xFF,0x58,4,4,2,24,8]}])];
   const CHS=[0,1,2,3,4,5,6,7,8,10,11,12,13,14,15];
   S.tracks.forEach((t,i)=>{const c=CHS[i%15],ev=[];if(t.sf)ev.push({t:0,o:-1,b:[0xC0|c,t.sf.p&127]});
-    for(const n of songNotes().filter(e=>e.t===t)){const a=Math.round(n.s*PPQ),z=Math.max(a+1,Math.round((n.s+n.d)*PPQ));ev.push({t:a,o:1,b:[0x90|c,n.p&127,n.v&127]},{t:z,o:0,b:[0x80|c,n.p&127,0]})}
+    for(const n of songNotes().filter(e=>e.t===t&&e.v>0)){const a=Math.round(n.s*PPQ),z=Math.max(a+1,Math.round((n.s+n.d)*PPQ));ev.push({t:a,o:1,b:[0x90|c,n.p&127,n.v&127]},{t:z,o:0,b:[0x80|c,n.p&127,0]})}
     parts.push(mk(ev))});
   dl((xDefName()+'.mid'),new Blob([cat(parts)],{type:'audio/midi'}));
 }
@@ -855,28 +857,41 @@ $('midf').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(!f)r
   try{if(playing)stop(true);const m=importMidi(await f.arrayBuffer());$('st').textContent='MIDI読込完了: '+m+' (拍子は4/4固定)'}
   catch(err){$('st').textContent='MIDI読込失敗: '+err.message;alert('MIDIを読み込めませんでした: '+err.message)}};
 /* ---------- ベロシティレーン ---------- */
-const vl=$('vl'),vg=vl.getContext('2d'),VLH=96;let vdrag=null;
+const vl=$('vl'),vg=vl.getContext('2d'),vlw=$('vlw'),VLH_MIN=56,VLH_MAX=300;let VLH=96,vdrag=null,defVel=100; // defVel: 直近に編集したベロシティ(新規音符の初期値。LMMSと同じ挙動)
+try{const q=+localStorage.getItem('daw-vlh');if(q>=VLH_MIN&&q<=VLH_MAX)VLH=Math.round(q)}catch(_){}
+function setVLH(h,save){VLH=Math.max(VLH_MIN,Math.min(VLH_MAX,Math.round(h)));vlw.style.height=(VLH+2)+'px';if(save){try{localStorage.setItem('daw-vlh',String(VLH))}catch(_){}}draw()}
+vlw.style.height=(VLH+2)+'px';
 function drawVL(){const r=devicePixelRatio||1,w=Math.max(1,roll.clientWidth),h=VLH,sx=roll.scrollLeft;
   const cw=Math.round(w*r),chh=Math.round(h*r);if(vl.width!==cw||vl.height!==chh){vl.width=cw;vl.height=chh;vl.style.width=w+'px';vl.style.height=h+'px'}
   const C={panel:css('--panel'),line:css('--line'),bar:css('--bar'),mut:css('--mut'),note:css('--note'),fg:css('--fg')},top=14,bh=h-top-4;
   vg.setTransform(r,0,0,r,0,0);vg.globalAlpha=1;vg.fillStyle=C.panel;vg.fillRect(0,0,w,h);
   vg.strokeStyle=C.line;for(const q of [.25,.5,.75,1]){const y=Math.round(top+bh*(1-q))+.5;vg.beginPath();vg.moveTo(0,y);vg.lineTo(w,y);vg.stroke()}
   for(let bar=Math.max(0,Math.floor(sx/BW/4));bar<=Math.min(S.len/4,Math.ceil((sx+w)/BW/4));bar++){const x=bar*4*BW-sx;vg.strokeStyle=C.bar;vg.beginPath();vg.moveTo(x+.5,top);vg.lineTo(x+.5,h);vg.stroke()}
-  vg.fillStyle=C.mut;vg.font='10px system-ui';vg.fillText('ベロシティ (1-127)',6,10);
+  vg.fillStyle=C.mut;vg.font='10px system-ui';vg.fillText('ベロシティ (0-127)'+(vdrag?'   '+vdrag.n.v:(selNote&&S.tracks[sel].notes.includes(selNote)?'   選択: '+selNote.v:'')),6,10);
   for(const n of S.tracks[sel].notes){const x=n.s*BW-sx;if(x<-8||x>w+8)continue;const on=n===selNote||selSet.has(n),bhh=Math.max(2,n.v/127*bh),y=top+bh-bhh;
     vg.globalAlpha=on?1:.55;vg.fillStyle=on?C.fg:C.note;vg.fillRect(x,y,6,bhh);if(on){vg.fillStyle=C.note;vg.fillRect(x-1,y,8,3)}}
   vg.globalAlpha=1;{const rp=relPB();if(rp>=0){vg.fillStyle='#e5484d';vg.fillRect(rp*BW-sx,top,2,bh)}}}
-const vOf=y=>Math.max(1,Math.min(127,Math.round((1-(y-14)/(VLH-18))*127)));
+const vOf=y=>Math.max(0,Math.min(127,Math.round((1-(y-14)/(VLH-18))*127)));
 const vXY=e=>{const r=vl.getBoundingClientRect();return{x:e.clientX-r.left+roll.scrollLeft,y:e.clientY-r.top}};
-function vApply(e){const nv=vOf(vXY(e).y),d=nv-vdrag.v0;for(const g of vdrag.group)g.n.v=Math.max(1,Math.min(127,g.v+d));draw()}
+function vApply(e){const nv=vOf(vXY(e).y),d=nv-vdrag.v0;
+  // 最初に値が変わる瞬間にだけUndo履歴を積む(クリックだけで何も変わらないときは履歴を汚さない)
+  if(!vdrag.pu&&vdrag.group.some(g=>Math.max(0,Math.min(127,g.v+d))!==g.n.v)){pushUndo();vdrag.pu=true}
+  for(const g of vdrag.group)g.n.v=Math.max(0,Math.min(127,g.v+d));defVel=vdrag.n.v;draw()}
 vl.addEventListener('pointerdown',e=>{const{x,y}=vXY(e),tv=vOf(y);let best=null,bs=1e9;
-  for(const n of S.tracks[sel].notes){const dx=Math.abs(x-(n.s*BW+3));if(dx>10)continue;const sc=Math.abs(n.v-tv)+dx*.5;if(sc<bs){bs=sc;best=n}}
-  if(!best)return;initAudio();vl.setPointerCapture(e.pointerId);pushUndo();
+  for(const n of S.tracks[sel].notes){const dx=Math.abs(x-(n.s*BW+3));if(dx>(e.pointerType==='touch'?20:10))continue;const sc=Math.abs(n.v-tv)+dx*.5;if(sc<bs){bs=sc;best=n}}
+  if(!best)return;initAudio();vl.setPointerCapture(e.pointerId);
   if(!selSet.has(best)){selSet.clear();selSet.add(best)}selNote=best;
   vdrag={n:best,v0:best.v,group:[...selSet].map(n=>({n,v:n.v}))};vApply(e)});
 vl.addEventListener('pointermove',e=>{if(vdrag)vApply(e)});
-const vEnd=()=>{if(!vdrag)return;const n=vdrag.n;vdrag=null;sfPreview(S.tracks[sel],n.p,n.v,.3);draw();dirty()};
+const vEnd=()=>{if(!vdrag)return;const n=vdrag.n,ch=vdrag.pu;vdrag=null;if(n.v>0)sfPreview(S.tracks[sel],n.p,n.v,.3);draw();if(ch)dirty()};
 vl.addEventListener('pointerup',vEnd);vl.addEventListener('pointercancel',vEnd);
+/* レーンの高さ: 上端のハンドルをドラッグ(マウス/タッチ)。キーボードでも調整可。ダブルクリックで既定に戻す */
+{const hd=document.createElement('div');hd.id='vlh';hd.setAttribute('role','separator');hd.setAttribute('aria-orientation','horizontal');hd.setAttribute('aria-label','ベロシティレーンの高さ(ドラッグで調整)');hd.tabIndex=0;hd.dataset.tip='ドラッグでベロシティレーンの高さを調整(ダブルクリックで戻す)';vlw.insertBefore(hd,vl);
+ let st=null;hd.addEventListener('pointerdown',e=>{e.preventDefault();hd.setPointerCapture(e.pointerId);st={y:e.clientY,h:VLH}});
+ hd.addEventListener('pointermove',e=>{if(st)setVLH(st.h+(st.y-e.clientY),false)});
+ const en=()=>{if(st){st=null;setVLH(VLH,true)}};hd.addEventListener('pointerup',en);hd.addEventListener('pointercancel',en);
+ hd.addEventListener('dblclick',()=>setVLH(96,true));
+ hd.addEventListener('keydown',e=>{if(e.key==='ArrowUp'||e.key==='ArrowDown'){e.preventDefault();setVLH(VLH+(e.key==='ArrowUp'?12:-12),true)}})}
 /* ---------- 複製 ---------- */
 function dupSel(){const a=selList();if(!a.length){$('st').textContent='複製する音符を選択してください(選択モードで範囲選択)';return}
   const b0=Math.min(...a.map(n=>n.s)),b1=Math.max(...a.map(n=>n.s+n.d)),off=Math.ceil((b1-b0)/GRID-1e-9)*GRID;
@@ -1005,13 +1020,9 @@ $('audf').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(f){i
 function patAutoVal(p,b,kind){const a=p&&p.automation,pts=a&&a.curves&&a.curves[kind];if(!pts||!pts.length)return kind==='vol'?1:0;if(b<=pts[0].t)return patAutoMap(kind,pts[0].v);if(b>=pts[pts.length-1].t)return patAutoMap(kind,pts[pts.length-1].v);let i=0;while(i<pts.length-2&&b>pts[i+1].t)i++;const x=pts[i],y=pts[i+1],u=(b-x.t)/Math.max(1e-9,y.t-x.t);return patAutoMap(kind,x.v+(y.v-x.v)*u)}
 function patAutoMap(kind,v){return kind==='vol'?Math.max(0,1+v):kind==='pitch'?v*12:Math.max(0,v)}
 function patAutoPitch(p,b){return patAutoVal(p,b,'pitch')*100}
-function drawPatternAutomationOverlay(){if(!PAEdit||VIEW!=='roll'||!EP)return;const r=devicePixelRatio||1,vw=Math.max(1,roll.clientWidth),vh=Math.max(1,roll.clientHeight),sx=roll.scrollLeft,sy=roll.scrollTop,top=RULER;const a=EP.automation||(EP.automation={kind:'vol',curves:{vol:[],pitch:[],echo:[]}});g2.save();g2.setTransform(r,0,0,r,0,0);g2.globalAlpha=.32;g2.fillStyle=css('--panel');g2.fillRect(0,top,vw,vh-top);g2.globalAlpha=.85;g2.strokeStyle=css('--acc');g2.lineWidth=1.5;const mid=top+(vh-top)/2;g2.setLineDash([5,4]);g2.beginPath();g2.moveTo(0,mid);g2.lineTo(vw,mid);g2.stroke();g2.setLineDash([]);g2.globalAlpha=1;const pts=(a.curves&&a.curves[a.kind])||[];if(pts.length){g2.strokeStyle=css('--acc');g2.lineWidth=2.5;g2.beginPath();pts.forEach((p,i)=>{const x=p.t*BW-sx,y=mid-p.v*(vh-top)*.45;i?g2.lineTo(x,y):g2.moveTo(x,y)});g2.stroke();for(const p of pts){const x=p.t*BW-sx,y=mid-p.v*(vh-top)*.45;g2.beginPath();g2.arc(x,y,5,0,Math.PI*2);g2.fillStyle=css('--panel');g2.fill();g2.strokeStyle=css('--acc');g2.lineWidth=2;g2.stroke()}}g2.fillStyle=css('--acc');g2.font='bold 12px system-ui';g2.fillText('オートメーション: '+({vol:'音量',pitch:'ピッチ',echo:'エコー'}[a.kind]||a.kind)+'　中央線 = 基準値',8,top+15);g2.restore()}
-function automationPointFromEvent(e){const rc=cv.getBoundingClientRect(),x=e.clientX-rc.left+roll.scrollLeft,y=e.clientY-rc.top,usable=Math.max(1,roll.clientHeight-RULER),mid=RULER+usable/2;return{t:Math.max(0,Math.min(EP.len,Math.round((x/BW)/GRID)*GRID)),v:Math.max(-1,Math.min(1,(mid-y)/(usable*.45)))}}
-cv.addEventListener('pointerdown',e=>{if(!PAEdit||VIEW!=='roll'||!EP)return;e.preventDefault();e.stopImmediatePropagation();cv.setPointerCapture(e.pointerId);pushUndo();const p=automationPointFromEvent(e),a=EP.automation||(EP.automation={kind:PAKind,points:[]});a.kind=PAKind;let found=a.points.findIndex(q=>Math.abs(q.t-p.t)<GRID*.45);if(found>=0)a.points.splice(found,1);a.points.push(p);a.points.sort((x,y)=>x.t-y.t);PADrag=true;draw();dirty()},true);
-cv.addEventListener('pointermove',e=>{if(!PADrag||!PAEdit||!EP)return;e.preventDefault();const p=automationPointFromEvent(e),a=EP.automation,pts=a.curves[PAKind];pts.push(p);pts.sort((x,y)=>x.t-y.t);const out=[];for(const q of pts){if(out.length&&Math.abs(out[out.length-1].t-q.t)<GRID*.4)out[out.length-1]=q;else out.push(q)}a.curves[PAKind]=out;draw();dirty()},true);
-const endPADrag=()=>{if(PADrag){PADrag=false;dirty()}};cv.addEventListener('pointerup',endPADrag,true);cv.addEventListener('pointercancel',endPADrag,true);
-function togglePatternAutomation(){if(!EP){$('st').textContent='先にパターンを開いてください';return}PAEdit=!PAEdit;if(PAEdit){PAKind=EP.automation?.kind||'vol';$('patAuto').classList.add('on');$('patAutoKind').style.display='';$('patAutoKind').value=PAKind;$('st').textContent='オートメーション編集: タップ/ドラッグで線を描画。もう一度ボタンで終了'}else{$('patAuto').classList.remove('on');$('patAutoKind').style.display='none';$('st').textContent='オートメーション編集を終了しました'}draw()}
-$('patAuto').onclick=togglePatternAutomation;$('patAutoKind').onchange=e=>{PAKind=e.target.value;if(EP){EP.automation=EP.automation||{curves:{}};EP.automation.kind=PAKind;EP.automation.curves=EP.automation.curves||{};EP.automation.curves[PAKind]=EP.automation.curves[PAKind]||[];draw();dirty()}};
+/* 旧「ブロック内オートメーション」の編集UI(patAuto / patAutoKind)は撤去。独立した Automation Editor に一本化。
+   ただし既存プロジェクトの pattern.automation(vol/pitch/echo曲線)は保存データに残っており、上の patAutoVal / voice() が
+   再生に反映し続けるので、データと再生側の処理はそのまま維持している(音が変わらないようにするため)。 */
 
 /* ---------- パターン / ソングエディター ---------- */
 let EP=null,bufObj=null,NC=null,VIEW='roll',sSel=null,sdrag=null,lastTap={pl:null,t:0};const SRH=(window.matchMedia&&matchMedia('(pointer:coarse)').matches)?34:24,svTop={roll:(HI-1-76)*RH,song:0},svLeft={roll:0,song:0};
@@ -1036,7 +1047,7 @@ function fixPatterns(){try{
     if(!ps.length){const P={id:uid(),name:'Pattern 1',color:S.tracks[0].color,len:16,notes:[]};ps.push(P);pl.push({id:uid(),pid:P.id,ti:0,s:0,l:16,w:4})}
     S.patterns=ps;S.place=pl;S.edit=ps[0].id;S.tracks.forEach(t=>{t.notes=[]})}
   const ids=new Set(S.patterns.map(p=>p.id));
-  for(const p of S.patterns){p.notes=Array.isArray(p.notes)?p.notes:[];p.len=Math.max(1,Number(p.len)||16);for(const n of p.notes)n.v=Math.max(1,Math.min(127,Math.round(n.v)||100));if(!p.automation||typeof p.automation!=='object')p.automation={kind:'vol',curves:{}};p.automation.kind=['vol','pitch','echo'].includes(p.automation.kind)?p.automation.kind:'vol';if(!p.automation.curves||typeof p.automation.curves!=='object')p.automation.curves={};if(Array.isArray(p.automation.points)&&!p.automation.curves[p.automation.kind])p.automation.curves[p.automation.kind]=p.automation.points;p.automation.curves=p.automation.curves||{};for(const k of ['vol','pitch','echo'])p.automation.curves[k]=(Array.isArray(p.automation.curves[k])?p.automation.curves[k]:[]).map(a=>({t:Math.max(0,Math.min(p.len,+a.t||0)),v:Math.max(-1,Math.min(1,+a.v||0))})).sort((a,b)=>a.t-b.t);delete p.automation.points}
+  for(const p of S.patterns){p.notes=Array.isArray(p.notes)?p.notes:[];p.len=Math.max(1,Number(p.len)||16);for(const n of p.notes)n.v=normVel(n.v);if(!p.automation||typeof p.automation!=='object')p.automation={kind:'vol',curves:{}};p.automation.kind=['vol','pitch','echo'].includes(p.automation.kind)?p.automation.kind:'vol';if(!p.automation.curves||typeof p.automation.curves!=='object')p.automation.curves={};if(Array.isArray(p.automation.points)&&!p.automation.curves[p.automation.kind])p.automation.curves[p.automation.kind]=p.automation.points;p.automation.curves=p.automation.curves||{};for(const k of ['vol','pitch','echo'])p.automation.curves[k]=(Array.isArray(p.automation.curves[k])?p.automation.curves[k]:[]).map(a=>({t:Math.max(0,Math.min(p.len,+a.t||0)),v:Math.max(-1,Math.min(1,+a.v||0))})).sort((a,b)=>a.t-b.t);delete p.automation.points}
   S.place=S.place.filter(q=>ids.has(q.pid)&&S.tracks[q.ti]&&q.l>0&&q.s>=0);
   for(const q of S.place){const w=+q.w;q.w=(isFinite(w)&&w>0)?Math.max(.5,w):q.l} // 旧データ(表示幅なし)は再生範囲と同じ幅=従来と同じ見た目
   EP=S.patterns.find(p=>p.id===S.edit)||S.patterns[0]||null;
@@ -1103,7 +1114,7 @@ function drawSong(){
 function setView(v){if(EMBED_AUTO&&v!=='auto')return;if(v===VIEW)return;syncBuf();svTop[VIEW]=roll.scrollTop;svLeft[VIEW]=roll.scrollLeft;VIEW=v;selSet.clear();selNote=null;drag=null;
   $('vlw').style.display=v==='roll'?'':'none';$('sgbar').style.display=v==='song'?'flex':'none';$('abar').style.display=v==='auto'?'flex':'none';
   {const _vs=$('vSong'),_vr=$('vRoll');if(_vs)_vs.classList.toggle('on',v==='song');if(_vr)_vr.classList.toggle('on',v==='roll')}draw();roll.scrollTop=svTop[v];roll.scrollLeft=svLeft[v]||0;draw();syncSongBar();window.__BGMQueueSharedSync?.();window.__BGMOnViewChanged?.(v)}
-function showSongView(){PAEdit=false;$('patAuto').classList.remove('on');$('patAutoKind').style.display='none';setView('song')}
+function showSongView(){setView('song')}
 window.__BGMShowSong=showSongView; // 上部の切り替えボタンは廃止。ソング画面へ戻す処理は関数として残す
 {const _vs=$('vSong'),_vr=$('vRoll');if(_vs)_vs.onclick=showSongView;if(_vr)_vr.onclick=()=>setView('roll')}
 function openPattern(q){const P=S.patterns.find(p=>p.id===q.pid);if(!P)return;syncBuf();bufObj=null;EP=P;S.edit=P.id;sel=q.ti;selSet.clear();selNote=null;sSel=q;

@@ -92,6 +92,7 @@ const redrawSoon=()=>{if(raf)return;raf=requestAnimationFrame(()=>{raf=0;drawKey
 function applyVisibility(){
   const on=VIEW==='roll'&&cfg.show;
   if(rc.classList.contains('pk-on')!==on)rc.classList.toggle('pk-on',on);
+  rc.style.setProperty('--pk-w',cfg.w+'px'); // 下のベロシティ/音声レーンを鍵盤幅だけ右へ寄せるための値
 }
 
 /* ---------- draw() に連動(スクロール・縦ズーム・トラック切替・再生で毎回更新) ---------- */
@@ -146,19 +147,22 @@ if(bar){
   const box=document.createElement('span');box.className='pk-ctl';
   box.innerHTML='<span class="sep"></span>'+
    '<button type="button" id="pkToggle" class="ib lbl" aria-pressed="true" data-tip="ピアノ鍵盤の表示 / 非表示" aria-label="ピアノ鍵盤の表示 / 非表示"><span class="lb">鍵盤</span></button>'+
+   '<button type="button" id="vlToggle" class="ib lbl" aria-pressed="true" data-tip="ベロシティレーンの表示 / 非表示" aria-label="ベロシティレーンの表示 / 非表示"><span class="lb">ベロシティ</span></button>'+
    '<span class="sl pk-opt">鍵盤幅</span><button type="button" id="pkWm" class="ib sq pk-opt" data-tip="鍵盤を細く" aria-label="鍵盤を細く"><svg class="ic" aria-hidden="true"><use href="#i-minus"/></svg></button>'+
    '<b id="pkWl" class="zv pk-opt"></b><button type="button" id="pkWp" class="ib sq pk-opt" data-tip="鍵盤を太く" aria-label="鍵盤を太く"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg></button>'+
    '<select id="pkLb" class="pk-opt" aria-label="鍵盤の音名表示" data-tip="鍵盤の音名表示" data-dd-search="0"><option value="all">音名: すべて</option><option value="c">音名: Cのみ</option><option value="off">音名: なし</option></select>';
-  const anchor=document.getElementById('patAuto'); // やり直しボタンの隣(ツールバー左側)に置く
+  const plen=document.getElementById('plen'),anchor=plen&&plen.previousElementSibling; // 「パターン長」の手前(ツールバー左側)に置く
   if(anchor&&anchor.parentNode===bar)bar.insertBefore(box,anchor);else bar.appendChild(box);
   const $$=id=>document.getElementById(id);
   const sync=()=>{
     $$('pkToggle').classList.toggle('on',cfg.show);$$('pkToggle').setAttribute('aria-pressed',String(cfg.show));
+    {const on=typeof pnState!=='undefined'?!!pnState.vl:true;$$('vlToggle').classList.toggle('on',on);$$('vlToggle').setAttribute('aria-pressed',String(on))}
     $$('pkWl').textContent=cfg.w+'px';$$('pkLb').value=cfg.labels;
     box.querySelectorAll('.pk-opt').forEach(el=>{el.style.display=cfg.show?'':'none'});
     $$('pkWm').disabled=cfg.w<=W_MIN;$$('pkWp').disabled=cfg.w>=W_MAX;
     applyVisibility();drawKeys();
   };
+  $$('vlToggle').onclick=()=>{if(typeof pnState==='undefined')return;pnState.vl=!pnState.vl;pnPrev=null;applyPanels();sync()};
   $$('pkToggle').onclick=()=>{cfg.show=!cfg.show;save();sync();draw()};
   $$('pkWm').onclick=()=>{cfg.w=Math.max(W_MIN,cfg.w-W_STEP);save();sync();draw()};
   $$('pkWp').onclick=()=>{cfg.w=Math.min(W_MAX,cfg.w+W_STEP);save();sync();draw()};
