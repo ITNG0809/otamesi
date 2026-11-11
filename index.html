@@ -106,7 +106,7 @@
  <div id="xMsg" role="status" aria-live="polite"></div>
  <div class="xb"><button id="xCancel">キャンセル</button><button id="xGo" class="pri">ダウンロード</button></div></div></div>
 <div id="sfl" hidden>
- <div class="sflt"><b>♪ SF2ライブラリ</b><button id="sflAdd">SF2追加(複数可)</button><button id="sflUsed" title="このプロジェクトのトラックが使っているSF2を、手動で読み込みます(起動時には自動で読み込みません)">使用中のSF2を読み込む</button><button id="sflNewF">フォルダー作成</button>
+ <div class="sflt"><b>♪ SF2ライブラリ</b><button id="sflAdd">SF2追加(複数可)</button><button id="sflUsed" title="このプロジェクトのトラックが使っているSF2を、手動で読み込みます(起動時には自動で読み込みません)">使用中のSF2を読み込む</button><button id="sflNewF">フォルダー作成</button><button id="sflExtract" title="読み込み済みSF2から必要な音色だけを選び、新しいSF2ファイルとして書き出します">音色を抽出してSF2書き出し</button>
   <input id="sflQ" placeholder="検索(音色名・SF2名・フォルダー名)" style="width:210px"><select id="sflOrd"><option value="name">名前順</option><option value="folder">フォルダー順(作成順)</option></select>
   <label><input type="checkbox" id="sflFav">★のみ</label><label title="追加するSF2のコピーをこのブラウザ内に保存します(次回から再選択不要)"><input type="checkbox" id="sflAuto" checked>追加時にブラウザへ保存</label>
   <label>設定先トラック<select id="sflTgt"></select></label><button id="sflClose">閉じる</button></div>
@@ -124,6 +124,8 @@
 <input type="file" id="audf" accept="audio/*,.wav,.mp3,.ogg,.m4a,.flac" hidden>
 <script src="script.js"></script>
 <script src="song-editor.js"></script>
+<script src="sf2-extract.js"></script>
+<script src="sf2-extract-ui.js"></script>
 <script src="piano-keys.js"></script>
 <script src="lmms-ui.js"></script>
 </body>

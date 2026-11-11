@@ -565,3 +565,34 @@ body.piano-embed #pianoTools .pk-ctl{flex-shrink:0!important}
 #rc.pk-on #vlw,#rc.pk-on #alw{padding-left:var(--pk-w,76px)}
 #rc.pk-on #vlw::before{content:"VEL";position:absolute;left:0;bottom:6px;width:var(--pk-w,76px);text-align:center;font-size:10px;letter-spacing:.08em;color:var(--mut)}
 #vl{display:block}
+
+
+/* === SF2 音色抽出・書き出しダイアログ(sf2-extract-ui.js) === */
+#sfxo{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;padding:12px;isolation:isolate;
+  -webkit-backdrop-filter:blur(8px) saturate(.82);backdrop-filter:blur(8px) saturate(.82);background:rgba(0,0,0,.56);
+  padding-top:max(12px,env(safe-area-inset-top,0px));padding-bottom:max(12px,env(safe-area-inset-bottom,0px))}
+#sfxo[hidden]{display:none!important}
+#sfxo .xdlg{position:relative;z-index:1;width:min(96vw,680px);max-height:100%}
+#sfxo .sfx-tools{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+#sfxo .sfx-tools input{flex:1 1 200px;min-width:0;width:auto!important}
+#sfxo .sfx-tools button{min-height:36px}
+#sfxo .sfx-list{border:1px solid var(--line);border-radius:8px;height:min(34vh,300px);min-height:120px;overflow:auto;background:var(--black);overscroll-behavior:contain}
+#sfxo .sfx-list.lock{opacity:.55;pointer-events:none}
+#sfxo .xdlg .sfx-row{display:flex;gap:8px;align-items:center;padding:2px 8px;min-height:38px;border-bottom:1px solid var(--line);cursor:pointer;color:var(--fg);font-size:13px}
+#sfxo .sfx-row:hover{background:var(--panel)}
+#sfxo .sfx-row input{width:18px;height:18px;flex:0 0 auto;min-height:0}
+#sfxo .sfx-n{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden}
+#sfxo .sfx-n b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#sfxo .sfx-n small{color:var(--mut);font-size:11px}
+#sfxo .sfx-row button{min-height:32px;min-width:36px;padding:0 6px}
+#sfxo .sfx-more{width:100%;min-height:42px}
+#sfxo .sfx-empty{padding:14px;color:var(--mut);font-size:12px}
+#sfxo .sfx-note{font-size:11px;color:var(--mut)}
+#sfxo .sfx-info{font-size:12px;line-height:1.7;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--black);color:var(--fg)}
+#sfxo .sfx-sub{color:var(--mut);font-size:11px}
+#sfxo .sfx-warn{color:#d98a00;font-size:11px}
+#sfxo .xdlg label.sfx-chk{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--fg)}
+#sfxo .sfx-chk input{width:18px;height:18px;flex:0 0 auto;margin-top:1px}
+#sfxo .sfx-msg{font-size:12px;min-height:16px;color:var(--mut);word-break:break-all}
+#sfxo .sfx-msg.ok{color:#2e9e57}#sfxo .sfx-msg.err{color:#e5484d}#sfxo .sfx-msg.warn{color:#d98a00}
+#sfxo .xdlg button:disabled{opacity:.5;cursor:not-allowed}

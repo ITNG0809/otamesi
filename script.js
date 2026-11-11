@@ -2036,7 +2036,7 @@ function libTree(){const fileRow=f=>'<div class="sff'+(LIB.selFile===f.id?' sel'
 function libFileHead(f){const fo=LIB.folders.find(x=>x.id===f.folder);
   return '<div class="sfh"><b>'+fsEsc(f.dn||f.name)+'</b><span style="color:var(--mut);font-size:12px">'+fsEsc(f.name)+' · '+MB(f.size)+(f.sf?' · '+f.sf.presets.length+'プリセット · メモリ約'+MB(libMem(f)):'')+' · '+(fo?'📁'+fsEsc(fo.name):'未分類')+'</span></div>'
   +'<div class="sfh"><button data-a="fav">'+(f.fav?'★ お気に入り解除':'☆ お気に入り')+'</button><button data-a="ren">表示名を変更</button><select data-a="mv"><option value="">移動: 未分類</option>'+LIB.folders.map(x=>'<option value="'+x.id+'"'+(x.id===f.folder?' selected':'')+'>移動: '+fsEsc(x.name)+'</option>').join('')+'</select>'
-  +(f.sf?'<button data-a="unload">解放(メモリから外す)</button><button data-a="cache">キャッシュ解放</button>':(f.stored?'<button data-a="load">読み込む</button>':''))
+  +(f.sf?'<button data-a="unload">解放(メモリから外す)</button><button data-a="cache">キャッシュ解放</button><button data-a="extract" title="このSF2から必要な音色だけを選んで、新しいSF2として書き出します">音色を抽出してSF2書き出し</button>':(f.stored?'<button data-a="load">読み込む</button>':''))
   +(f.stored?'<button data-a="unstore">保存データを削除</button>':(f.sf?'<button data-a="store">ブラウザに保存</button>':''))+'<button data-a="unreg">登録解除</button></div>'
   +(f.sf?'':'<div class="sfh" style="color:var(--mut)">'+(f.err?fsEsc(f.err)+'<br>':'')+(f.stored?'ブラウザに保存済みです。「読み込む」で使えます。':'このSF2はブラウザに保存されていません。「SF2追加」で同じファイルを再選択すると、この登録に接続されます。')+'</div>')}
 function libRight(){const f=LIB.files.get(LIB.selFile),searching=!!LIB.q.trim(),rows=libRows(LIB.q,LIB.selFile,LIB.favOnly);let h='';
@@ -2083,9 +2083,10 @@ sflR.addEventListener('click',async e=>{const t=e.target,f=LIB.files.get(LIB.sel
   else if(a==='ren'){const n=prompt('表示名を変更(元のファイル名: '+f.name+')',f.dn||f.name);if(n===null)return;f.dn=n.trim().slice(0,60)||f.name;libSave();renderTracks();libRender()}
   else if(a==='unload')libUnload(f);else if(a==='load')libLoadStored(f).then(()=>{renderTracks();libSave()});
   else if(a==='cache'){if(f.sf){f.sf.dropCache();warmTracks(true)}libLog('キャッシュを解放しました: '+(f.dn||f.name),'ok');libRender()}
+  else if(a==='extract'){if(window.SF2XUI)window.SF2XUI.open(f.id)}
   else if(a==='store')libStore(f,true);else if(a==='unstore')libStore(f,false);else if(a==='unreg')libUnreg(f)});
 sflR.addEventListener('change',e=>{if(e.target.dataset.a==='mv')libMove(LIB.selFile,e.target.value||null)});
-addEventListener('keydown',e=>{const o=$f('sfl');if(o&&!o.hidden&&e.key==='Escape'&&!DD.openNow()){closeLib();e.stopImmediatePropagation()}},true);
+addEventListener('keydown',e=>{const o=$f('sfl');if(o&&!o.hidden&&e.key==='Escape'&&!DD.openNow()&&!(window.SF2XUI&&window.SF2XUI.isOpen())){closeLib();e.stopImmediatePropagation()}},true);
 /* ---------- カスタムプルダウン(共通コンポーネント DD) ----------
    既存の<select>を「データの置き場」として残し(value / onchange / 動的な選択肢更新はそのまま動く)、見た目と操作だけを自作に置き換える。
    機能: 開閉アニメ / 選択中のチェック・ハイライト / 検索 / アイコン(data-icon) / 説明文(data-desc) / optgroup の階層開閉(" / " 区切りで入れ子) / キーボード / ARIA / 画面端の補正
