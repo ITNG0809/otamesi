@@ -25,11 +25,21 @@ function bindPb(t,par,node,bus){try{const pb=getCh(t)[bus||'pb'];pb.connect(par)
 /* ベロシティ正規化: 未設定(旧形式)は100、0〜127に丸める(0は無音) */
 function normVel(v){if(v==null||v==='')return 100;const x=Math.round(+v);return isFinite(x)?Math.max(0,Math.min(127,x)):100}
 function voice(t,p,v,when,dur){if(!(v>0)){PA=null;PC=null;return}PC=(VB==null||!(PA&&PA.p))?null:pitchCurve(t,VB,dur/spb());if(PA&&PA.p){const av=patAutoVal(PA.p,PA.b,'vol');v=Math.max(0,Math.min(127,v*av));const ev=patAutoVal(PA.p,PA.b,'echo');try{const ch=getCh(t);ch.eg.gain.setValueAtTime(Math.max(0,Math.min(1,ev)),when)}catch(_){}}if(t.sf&&sfRes(t))sfVoice(t,p,v,when,dur);else synthVoice(t,p,v,when,dur);PC=null;PA=null}
+/* ---- トラックの音源モデル(音源の種類は t.sf の有無で決まる。旧プロジェクトと同じ形式) ----
+   ・内蔵シンセ: t.wave / t.cut / t.atk(秒) / t.rel(秒)   ・SF2: t.sf={f,b,p,n,fn}
+   ・SF2→シンセへ切り替えたときだけ、元のSF2指定を t.sfStash に退避(戻すと復元)。音符・パターンには一切触れない */
+const SYN_ENV={atk:[.001,2,.01],rel:[.005,3,.12]};
+function synEnv(t,k){const d=SYN_ENV[k],v=t&&t[k]!=null?+t[k]:d[2];return isFinite(v)?Math.max(d[0],Math.min(d[1],v)):d[2]}
+const WAVE_JA={sine:'サイン波',triangle:'三角波',square:'矩形波',sawtooth:'ノコギリ波'};
+const instType=t=>t&&t.sf?'sf2':'synth';
+function instLabel(t){if(t.sf){const R=sfRes(t);return 'SF2 · '+(t.sf.n||('Bank'+t.sf.b+':'+t.sf.p))+(R?'':'(未読込)')}return 'シンセ · '+(WAVE_JA[t.wave]||t.wave)}
+function instDesc(t){if(t.sf)return (t.sf.fn||'SF2')+' / '+(t.sf.n||('Bank'+t.sf.b+':'+t.sf.p));return 'シンセ(内蔵) / '+(WAVE_JA[t.wave]||t.wave)+' / LPF '+Math.round(t.cut==null?6000:t.cut)+'Hz'}
+function instIconTxt(t){return t.icon&&t.icon!=='auto'?t.icon:(t.sf?'SF2':'SYN')}
 function synthVoice(t,p,v,when,dur){
   const o=ctx.createOscillator(),f=ctx.createBiquadFilter(),g=ctx.createGain();
   o.type=t.wave;o.frequency.value=440*Math.pow(2,(p-69)/12);bindPb(t,o.detune,o);if(PC)applyDet(o.detune,when,PC);
   f.type='lowpass';f.frequency.value=t.cut;bindPb(t,f.detune,o,'cb');
-  const pk=(v/127)*.35,A=.01,R=.12,end=when+Math.max(dur,.05);
+  const pk=(v/127)*.35,A=synEnv(t,'atk'),R=synEnv(t,'rel'),end=when+Math.max(dur,.05); // atk/rel はトラックの音源設定(未設定は従来の0.01秒/0.12秒)
   g.gain.setValueAtTime(0,when);g.gain.linearRampToValueAtTime(pk,when+A);
   g.gain.setValueAtTime(pk*.8,Math.max(end,when+A));g.gain.linearRampToValueAtTime(0,end+R);
   o.connect(f);f.connect(g);g.connect(chIn(t));o.start(when);o.stop(end+R+.02);
@@ -100,35 +110,35 @@ function startFresh(){$('st').textContent='新規プロジェクト';$('bpm').va
 
 /* ---------- tracks UI ---------- */
 function renderTracks(){
+  /* LMMS風トラック一覧: 1トラック=1行(アイコン/名前/M/S/メニュー + 音源名 + 音量/パン)。
+     波形・フィルター・SF2の選択は、アイコンまたは音源名を押して開く「音源設定ウィンドウ」(instrument.js)で行う */
   const tl=$('tl');tl.innerHTML='';
   S.tracks.forEach((t,i)=>{
-    const d=document.createElement('div');d.className='trk'+(i===sel?' sel':'');
-    d.innerHTML=`<div class="r"><input value="${t.name.replace(/"/g,'&quot;')}" data-k="name"><button data-a="up" title="上へ">▲</button><button data-a="dn" title="下へ">▼</button><button data-a="del" title="削除">✕</button></div>
-    <div class="r"><label>色</label><input type="color" data-k="color" value="${t.color||'#2f6fed'}"></div>
-    <div class="r"><select data-k="wave"><option value="sine">サイン波</option><option value="square">矩形波</option><option value="triangle">三角波</option><option value="sawtooth">ノコギリ波</option></select></div>
-    <div class="r"><select data-src>${srcOpts(t)}</select></div>
-    <div class="r"><label>音量</label><input type="range" data-k="vol" min="0" max="1" step=".01" value="${t.vol}"></div>
-    <div class="r"><label>音色</label><input type="range" data-k="cut" min="200" max="12000" step="50" value="${t.cut}"></div>
-    <div class="r"><button data-a="mute" class="${t.mute?'on':''}">M</button><button data-a="solo" class="${t.solo?'on':''}">S</button></div>`;
-    d.querySelector('select').value=t.wave;
+    t.id=t.id||uid();
+    const d=document.createElement('div');d.className='trk lt'+(i===sel?' sel':'')+(t.mute?' muted':'');d.dataset.i=i;d.dataset.tid=t.id;
+    const ic=instIconTxt(t),icc=ic==='SF2'?'ic-sf':ic==='SYN'?'ic-syn':'ic-em';
+    d.innerHTML=`<div class="lt-top"><span class="lt-grip" style="background:${fsEsc(t.color||'#2f6fed')}"></span><button type="button" class="lt-ic ${icc}" data-a="inst" title="音源設定を開く" aria-label="音源設定を開く">${fsEsc(ic)}</button><input class="lt-name" data-k="name" value="${fsEsc(t.name)}" aria-label="トラック名" maxlength="40"><button type="button" class="lt-m${t.mute?' on':''}" data-a="mute" aria-pressed="${!!t.mute}" title="ミュート">M</button><button type="button" class="lt-s${t.solo?' on':''}" data-a="solo" aria-pressed="${!!t.solo}" title="ソロ">S</button><button type="button" class="lt-more" data-a="menu" aria-haspopup="menu" title="トラックのメニュー(複製・並べ替え・削除など)" aria-label="トラックのメニュー">⋯</button></div>
+    <button type="button" class="lt-inst" data-a="inst" title="${fsEsc(instDesc(t))}(押すと音源設定を開く)">${fsEsc(instLabel(t))}</button>
+    <div class="lt-mix"><label>音量</label><input type="range" data-k="vol" min="0" max="1" step=".01" value="${t.vol}" aria-label="音量" title="音量"><label>パン</label><input type="range" data-k="pan" min="-1" max="1" step=".05" value="${t.pan||0}" aria-label="パン" title="パン(ダブルクリックで中央)"></div>`;
     d.onclick=e=>{if(e.target.closest('[data-a],input,select,.dd'))return;sel=i;selNote=null;selSet.clear();renderTracks();draw()};
-    t.id=t.id||uid();markAuto(d.querySelector('[data-k="vol"]'),'trk:'+t.id+':vol');
+    markAuto(d.querySelector('[data-k="vol"]'),'trk:'+t.id+':vol');markAuto(d.querySelector('[data-k="pan"]'),'trk:'+t.id+':pan');
     d.querySelectorAll('[data-k]').forEach(el=>{
       el.onfocus=()=>{sel=i;draw()};
-      el.oninput=()=>{const k=el.dataset.k;t[k]=el.type==='range'?+el.value:el.value;if(k==='vol'&&ctx&&!AUTOLIVE.has('trk:'+t.id+':vol'))getCh(t).in.gain.value=t.vol;dirty();if(k==='color'||k==='name')draw()};
-      el.onchange=()=>{if(el.tagName==='SELECT'){sfPreview(t,60,100,.3)}};
+      el.oninput=()=>{const k=el.dataset.k;t[k]=el.type==='range'?+el.value:el.value;
+        if(k==='vol'&&ctx&&!AUTOLIVE.has('trk:'+t.id+':vol'))getCh(t).in.gain.value=t.vol;
+        if(k==='pan'&&ctx&&!AUTOLIVE.has('trk:'+t.id+':pan'))getCh(t).pan.pan.value=t.pan;
+        dirty();if(k==='name')draw()};
+      el.onchange=()=>{if(el.dataset.k==='pan'&&sel===i)renderMx();try{window.BGMInst&&window.BGMInst.sync()}catch(_){}};
     });
+    const pn=d.querySelector('[data-k="pan"]');pn.ondblclick=()=>{pn.value=0;pn.dispatchEvent(new Event('input'));pn.dispatchEvent(new Event('change'))};
     d.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>{
       const a=b.dataset.a;
       if(a==='mute'){t.mute=!t.mute}
       else if(a==='solo'){t.solo=!t.solo}
-      else if(a==='up'||a==='dn'){pushUndo();moveTrack(i,a==='up'?-1:1);return}
-      else if(a==='del'){if(S.tracks.length<2){alert('最後のトラックは削除できません');return}
-        if(!confirm(t.name+' を削除しますか？'))return;pushUndo();syncBuf();S.tracks.splice(i,1);S.place=S.place.filter(p=>p.ti!==i);S.place.forEach(p=>{if(p.ti>i)p.ti--});fixAuto();sel=Math.max(0,Math.min(sel,S.tracks.length-1))}
+      else if(a==='inst'){if(window.BGMInst)window.BGMInst.open(t.id);return}
+      else if(a==='menu'){const r=b.getBoundingClientRect();if(window.SongEditorExt&&window.SongEditorExt.trackMenu)window.SongEditorExt.trackMenu(r.left,r.bottom,i);return}
       dirty();renderTracks();draw();
     });
-    const ss=d.querySelector('[data-src]');ss.onfocus=()=>{sel=i;draw()};
-    ss.onchange=()=>{const v=ss.value;if(v==='x')return;pushUndo();t.sf=v===''?null:sfParse(v);sfPreview(t,60,100,.5);dirty();if(t.sf){warmTracks();libSyncProject().catch(()=>{})}};
     tl.appendChild(d);
   });
 }

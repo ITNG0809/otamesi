@@ -19,7 +19,7 @@
   const menus={
     project:[['新規プロジェクト','lmms-new'],['プロジェクトを開く…','lmms-open'],['最近使ったプロジェクトを開く','lmms-open-recent'],['プロジェクトを保存','lmms-save'],['名前を付けて保存…','lmms-saveas'],['区切り','separator'],['音声を書き出す…','lmms-export-audio'],['MIDIを書き出す','mexp'],['MIDIを読み込む…','mimp']],
     edit:[['元に戻す','undo'],['やり直す','redo'],['全選択','sall'],['選択項目を削除','del']],
-    view:[['Song Editor を開く','lmms-song-window'],['Piano Roll を開く','lmms-roll-window'],['Browser を表示 / 非表示','lmms-browser'],['Mixer を表示 / 非表示','lmms-mixer'],['編集ツールバー','lmms-toolbar'],['ベロシティレーン','lmms-velocity']],
+    view:[['Song Editor を開く','lmms-song-window'],['Piano Roll を開く','lmms-roll-window'],['選択トラックの音源設定','lmms-inst-window'],['Browser を表示 / 非表示','lmms-browser'],['Mixer を表示 / 非表示','lmms-mixer'],['編集ツールバー','lmms-toolbar'],['ベロシティレーン','lmms-velocity']],
     tools:[['SoundFont ライブラリ','sflB'],['自作エフェクト','fxs'],['MIDI 読み込み','mimp'],['MIDI 書き出し','mexp']],
     help:[['BGM-notpcについて','lmms-about']]
   };
@@ -32,6 +32,7 @@
     if(id==='lmms-saveas'){window.BGMProjectIO?.saveAs();return}
     if(id==='lmms-open-recent'){window.BGMProjectIO?.openRecent();return}
     if(id==='lmms-export-audio'){window.BGMProjectIO?.exportAudio();return}
+    if(id==='lmms-inst-window'){try{const tr=S.tracks[sel];if(tr&&window.BGMInst)window.BGMInst.open(tr.id)}catch(_){}return}
     if(id==='lmms-browser'){browser.classList.remove('hid');browser.classList.toggle('lmms-hidden');syncWindowButtons();return}
     if(id==='lmms-mixer'){const el=$('#mx');if(el)el.classList.toggle('hid');return}
     if(id==='lmms-toolbar'){document.querySelectorAll('.bar2').forEach(e=>e.classList.toggle('hid'));return}
@@ -94,6 +95,7 @@
       <div class="lmms-browser-tabs" role="tablist" aria-label="Browser category">
         <button type="button" class="active" data-browser-tab="all" role="tab" aria-selected="true">All</button>
         <button type="button" data-browser-tab="tracks" role="tab" aria-selected="false">Tracks</button>
+        <button type="button" data-browser-tab="inst" role="tab" aria-selected="false">Inst</button>
         <button type="button" data-browser-tab="audio" role="tab" aria-selected="false">Audio</button>
       </div>`;
     browserActions.insertAdjacentElement('afterend',browserTools);
@@ -101,6 +103,11 @@
     trackCaption.className='lmms-browser-section-title';
     trackCaption.innerHTML='<span class="lmms-browser-section-icon">♫</span><span>INSTRUMENT TRACKS</span><span class="lmms-browser-count" id="lmmsTrackCount">0</span>';
     trackList.insertAdjacentElement('beforebegin',trackCaption);
+    const instList=browser.querySelector('#ibr');
+    const instCaption=document.createElement('div');
+    instCaption.className='lmms-browser-section-title lmms-inst-section-title';
+    instCaption.innerHTML='<span class="lmms-browser-section-icon">♪</span><span>INSTRUMENTS</span>';
+    if(instList)instList.insertAdjacentElement('beforebegin',instCaption);
     const audioCaption=document.createElement('div');
     audioCaption.className='lmms-browser-section-title lmms-audio-section-title';
     audioCaption.innerHTML='<span class="lmms-browser-section-icon">▧</span><span>AUDIO CLIPS</span><span class="lmms-browser-count" id="lmmsAudioCount">0</span>';
@@ -114,10 +121,12 @@
       const tracks=rows(trackList),audio=rows(audioList);
       tracks.forEach(row=>row.hidden=!!q&&!row.textContent.toLocaleLowerCase().includes(q));
       audio.forEach(row=>row.hidden=!!q&&!row.textContent.toLocaleLowerCase().includes(q));
-      trackCaption.hidden=browserTab==='audio';
-      trackList.hidden=browserTab==='audio';
-      audioCaption.hidden=browserTab==='tracks';
-      audioList.hidden=browserTab==='tracks';
+      trackCaption.hidden=browserTab==='audio'||browserTab==='inst';
+      trackList.hidden=browserTab==='audio'||browserTab==='inst';
+      audioCaption.hidden=browserTab==='tracks'||browserTab==='inst';
+      audioList.hidden=browserTab==='tracks'||browserTab==='inst';
+      instCaption.hidden=browserTab==='audio'||browserTab==='tracks';
+      if(instList){instList.hidden=browserTab==='audio'||browserTab==='tracks';instList.style.maxHeight=browserTab==='inst'?'none':'';instList.style.flex=browserTab==='inst'?'1 1 auto':''}
       if(browserTab==='tracks')trackList.style.flex='1 1 auto';
       else if(browserTab==='audio')audioList.style.flex='1 1 auto';
       else {trackList.style.flex='1 1 auto';audioList.style.flex='0 1 auto'}
@@ -126,7 +135,7 @@
       if(ac)ac.textContent=String(audio.filter(x=>!x.hidden).length);
     }
     search.addEventListener('input',refreshBrowser);
-    clear.addEventListener('click',()=>{search.value='';search.focus();refreshBrowser()});
+    clear.addEventListener('click',()=>{search.value='';search.focus();refreshBrowser();search.dispatchEvent(new Event('input'))});
     browserTools.querySelectorAll('[data-browser-tab]').forEach(btn=>btn.addEventListener('click',()=>{
       browserTab=btn.dataset.browserTab;
       browserTools.querySelectorAll('[data-browser-tab]').forEach(b=>{const on=b===btn;b.classList.toggle('active',on);b.setAttribute('aria-selected',String(on))});
@@ -228,6 +237,6 @@
   window.__BGMOnViewChanged=v=>{if(v==='roll'){setTimeout(()=>{openEditorView('roll');ensureSong()},0)}else if(v==='auto'){setTimeout(()=>{openAutomationWindow(window.__BGMGetAutoSelection?.());ensureSong()},0)}};
   const trBtn=document.querySelector('#dock [data-pn="tr"]');if(trBtn)trBtn.addEventListener('click',()=>{browser.classList.toggle('lmms-hidden',browser.classList.contains('hid'));syncWindowButtons()});
   addEventListener('resize',()=>{const r=main.getBoundingClientRect();[browser,songWinEl,rollWinEl,autoWinEl,sf2WinEl,fxWinEl].filter(Boolean).forEach(el=>{if(el.classList.contains('lmms-maximized'))return;const left=parseFloat(el.style.left)||0,top=parseFloat(el.style.top)||0;if(left>r.width-90)el.style.left=Math.max(0,r.width-220)+'px';if(top>r.height-40)el.style.top=Math.max(0,r.height-120)+'px'});});
-  window.BGMNotpcLMMSUI={restoreBrowser:browserWin.restore,restoreSongEditor:()=>openEditorView('song'),restorePianoRoll:()=>openEditorView('roll'),restoreAutomation:()=>openAutomationWindow(),restoreSF2Library:()=>{if(sf2Win){sf2Win.restore();sf2WinEl.hidden=false;syncWindowButtons()}},restoreEffects:()=>{if(fxWin){fxWin.restore();fxWinEl.hidden=false;syncWindowButtons()}},syncWindowButtons,openSongEditor:()=>openEditorView('song'),openPianoRoll:()=>openEditorView('roll')};
+  window.BGMNotpcLMMSUI={makeWindow,restoreBrowser:browserWin.restore,restoreSongEditor:()=>openEditorView('song'),restorePianoRoll:()=>openEditorView('roll'),restoreAutomation:()=>openAutomationWindow(),restoreSF2Library:()=>{if(sf2Win){sf2Win.restore();sf2WinEl.hidden=false;syncWindowButtons()}},restoreEffects:()=>{if(fxWin){fxWin.restore();fxWinEl.hidden=false;syncWindowButtons()}},syncWindowButtons,openSongEditor:()=>openEditorView('song'),openPianoRoll:()=>openEditorView('roll')};
   const name=$('#projectName');const label=$('#lmmsProjectLabel');const syncName=()=>{if(label)label.textContent=(name?.value||'BGM').slice(0,28)};name?.addEventListener('input',syncName);syncName();
 })();

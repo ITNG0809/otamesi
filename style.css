@@ -596,3 +596,123 @@ body.piano-embed #pianoTools .pk-ctl{flex-shrink:0!important}
 #sfxo .sfx-msg{font-size:12px;min-height:16px;color:var(--mut);word-break:break-all}
 #sfxo .sfx-msg.ok{color:#2e9e57}#sfxo .sfx-msg.err{color:#e5484d}#sfxo .sfx-msg.warn{color:#d98a00}
 #sfxo .xdlg button:disabled{opacity:.5;cursor:not-allowed}
+
+/* =====================================================================
+   トラック一覧(LMMS風) / Browser の音源セクション / 音源設定ウィンドウ
+   ===================================================================== */
+:root[data-lmms="1"] .trk.lt{display:flex;flex-direction:column;gap:4px;padding:5px 6px 6px 0;overflow:hidden}
+:root[data-lmms="1"] .trk.lt.muted{opacity:.62}
+:root[data-lmms="1"] .trk.lt .lt-top{display:flex;align-items:center;gap:4px;min-width:0}
+:root[data-lmms="1"] .trk.lt .lt-grip{flex:0 0 5px;align-self:stretch;min-height:22px;border-radius:0 2px 2px 0}
+:root[data-lmms="1"] .trk.lt .lt-ic{flex:0 0 auto;min-width:30px;width:30px;height:24px;min-height:24px;padding:0;font-size:9px;font-weight:700;line-height:22px;text-align:center;color:#fff;border:1px solid #14171a;border-radius:2px;cursor:pointer}
+:root[data-lmms="1"] .trk.lt .lt-ic.ic-sf{background:#d96cb7;border-color:#f4b7e3}
+:root[data-lmms="1"] .trk.lt .lt-ic.ic-syn{background:#1f9a4d;border-color:#7fe3a3}
+:root[data-lmms="1"] .trk.lt .lt-ic.ic-em{background:#4b535d;border-color:#6c7684;font-size:14px}
+:root[data-lmms="1"] .trk.lt .lt-name{flex:1 1 0;min-width:0;width:auto;height:24px;min-height:24px;padding:0 6px;font-size:12px;font-weight:700;color:#d1d8e4!important;background:#282d34!important;border:1px solid #1e2227!important;border-radius:2px}
+:root[data-lmms="1"] .trk.lt .lt-m,:root[data-lmms="1"] .trk.lt .lt-s,:root[data-lmms="1"] .trk.lt .lt-more{flex:0 0 auto;min-width:24px;width:24px;height:24px;min-height:24px;padding:0;font-size:11px;font-weight:700;background:#262b30;border:1px solid #1b1e22;color:#a9b2bc;border-radius:2px}
+:root[data-lmms="1"] .trk.lt .lt-m.on{background:#d4a017;color:#17191c;border-color:#7b5d0b}
+:root[data-lmms="1"] .trk.lt .lt-s.on{background:#17a64f;color:#f4fff8;border-color:#0d5a28}
+:root[data-lmms="1"] .trk.lt .lt-inst{margin-left:9px;display:block;width:calc(100% - 9px);min-height:24px;height:24px;padding:0 8px;text-align:left;font-size:11px;color:#c3ccd8;background:#262b30;border:1px solid #1b1e22;border-radius:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+:root[data-lmms="1"] .trk.lt .lt-inst:hover,:root[data-lmms="1"] .trk.lt .lt-ic:hover{filter:brightness(1.18)}
+:root[data-lmms="1"] .trk.lt .lt-mix{display:grid;grid-template-columns:auto 1fr auto 1fr;align-items:center;gap:3px 5px;margin-left:9px;min-width:0}
+:root[data-lmms="1"] .trk.lt .lt-mix label{font-size:10px;color:#9ba4b0}
+:root[data-lmms="1"] .trk.lt .lt-mix input[type=range]{width:100%;min-width:0;height:22px;min-height:22px;padding:0;margin:0;background:transparent!important;border:0!important;accent-color:#17a64f}
+@media(pointer:coarse){
+  :root[data-lmms="1"] .trk.lt .lt-ic{min-width:36px;width:36px;height:34px;min-height:34px;line-height:32px}
+  :root[data-lmms="1"] .trk.lt .lt-name{height:34px;min-height:34px;font-size:14px}
+  :root[data-lmms="1"] .trk.lt .lt-m,:root[data-lmms="1"] .trk.lt .lt-s,:root[data-lmms="1"] .trk.lt .lt-more{min-width:34px;width:34px;height:34px;min-height:34px;font-size:13px}
+  :root[data-lmms="1"] .trk.lt .lt-inst{height:34px;min-height:34px;font-size:12px}
+  :root[data-lmms="1"] .trk.lt .lt-mix input[type=range]{height:32px;min-height:32px}
+}
+
+/* Browser: 音源(内蔵シンセ / SoundFont) */
+#ibr{display:block;padding:5px;background:#2e343b;overflow:auto;min-height:0;scrollbar-width:thin}
+#ibr[hidden]{display:none!important}
+:root[data-lmms="1"] main>aside.lmms-window>#ibr{flex:0 1 auto;max-height:46%;border-top:1px solid #191c1f}
+#ibr .ib-target{font-size:10px;color:#9ba4b0;padding:2px 4px 5px}#ibr .ib-target b{color:#d1d8e4}
+#ibr .ib-grp{font-size:10px;letter-spacing:.06em;color:#8d97a4;padding:6px 4px 3px;text-transform:uppercase}
+#ibr .ib-row{display:flex;align-items:center;gap:4px;min-height:28px;padding:1px 3px;border:1px solid transparent;border-radius:2px;color:#d1d8e4;font-size:11px;cursor:pointer;user-select:none;-webkit-user-select:none}
+#ibr .ib-row:hover{background:#3c444e}
+#ibr .ib-row.cur{background:#30493a;border-color:#17793b}
+#ibr .ib-row .ib-n{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#ibr .ib-row small{color:#9ba4b0;font-size:9px;white-space:nowrap}
+#ibr .ib-row button,#ibr .ib-btn{flex:0 0 auto;min-width:26px;height:24px;min-height:24px;padding:0 6px;font-size:11px;color:#d1d8e4;background:linear-gradient(#4b535d,#353c45);border:1px solid #101213;border-radius:2px}
+#ibr .ib-row.file{font-weight:700}
+#ibr .ib-row.file .ib-tw{width:12px;color:#9ba4b0;font-size:9px;text-align:center}
+#ibr .ib-pre{margin-left:14px}
+#ibr .ib-row.sf2 .ib-badge,#ibr .ib-row.syn .ib-badge{flex:0 0 auto;width:22px;height:16px;border-radius:2px;font-size:8px;font-weight:700;line-height:16px;text-align:center;color:#fff}
+#ibr .ib-row.sf2 .ib-badge{background:#d96cb7}#ibr .ib-row.syn .ib-badge{background:#1f9a4d}
+#ibr .ib-row.dragging{opacity:.5}
+#ibr .ib-more{width:100%;margin-top:3px;min-height:28px;font-size:11px;color:#d1d8e4;background:#3a414a;border:1px solid #14171a;border-radius:2px}
+#ibr .ib-foot{display:flex;gap:4px;padding:6px 0 2px}#ibr .ib-foot .ib-btn{flex:1;height:26px}
+#ibr .ib-empty{font-size:10px;color:#9ba4b0;padding:3px 6px}
+.trk.lt.drop-target{outline:2px dashed #17a64f;outline-offset:-2px}
+@media(pointer:coarse){#ibr .ib-row{min-height:36px}#ibr .ib-row button,#ibr .ib-btn{min-height:32px;height:32px;min-width:34px}}
+
+/* 音源設定ウィンドウ(トラックごとに独立) */
+:root[data-lmms="1"] main>.inst-window{position:absolute;display:flex;flex-direction:column;min-width:290px;min-height:260px;margin:0;padding:0;overflow:hidden;resize:both;background:#2e343b;color:#d1d8e4;border:1px solid #14171a;border-radius:2px;box-shadow:1px 2px 6px #0009;z-index:40;overscroll-behavior:contain}
+:root[data-lmms="1"] main>.inst-window.lmms-active{border-color:#17793b;box-shadow:0 0 0 1px #17793b,1px 2px 6px #0009}
+:root[data-lmms="1"] main>.inst-window>.lmms-titlebar{flex:0 0 auto}
+.iw{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;font-size:12px}
+.iw button,.iw input{font:inherit}
+.iw .iw-head{display:flex;align-items:center;gap:6px;padding:6px 8px;background:#373d48;border-bottom:1px solid #1b1f22;flex:0 0 auto}
+.iw .iw-badge{flex:0 0 auto;min-width:34px;height:26px;padding:0 4px;line-height:24px;text-align:center;font-size:10px;font-weight:700;color:#fff;border:1px solid #14171a;border-radius:2px;background:#1f9a4d}
+.iw .iw-badge.sf2{background:#d96cb7}.iw .iw-badge.em{background:#4b535d;font-size:15px}
+.iw .iw-name{flex:1 1 0;min-width:0;height:28px;min-height:28px;padding:0 8px;color:#d1d8e4;background:#282d34;border:1px solid #1b1e22;border-radius:2px;font-weight:700}
+.iw .iw-tabs{display:flex;gap:0;flex:0 0 auto;background:#2a3036;border-bottom:1px solid #191c1f}
+.iw .iw-tabs button{flex:1;height:32px;min-height:32px;padding:0 6px;color:#aeb7c3;background:#2f363e;border:0;border-right:1px solid #191c1f;border-bottom:2px solid transparent;border-radius:0;cursor:pointer}
+.iw .iw-tabs button.on{color:#f4fff8;background:#394049;border-bottom-color:#17a64f;font-weight:700}
+.iw .iw-body{flex:1 1 auto;min-height:0;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:8px;scrollbar-width:thin}
+.iw .iw-pane[hidden]{display:none!important}
+.iw .iw-pane{display:flex;flex-direction:column;gap:8px;min-height:0;flex:1 1 auto}
+.iw .iw-sec{display:flex;flex-direction:column;gap:6px;padding:7px;background:#363d46;border:1px solid #23282e;border-radius:3px}
+.iw .iw-sec>h4{margin:0;font-size:10px;font-weight:700;letter-spacing:.08em;color:#8d97a4;text-transform:uppercase}
+.iw .iw-waves{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+.iw .iw-waves button{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;height:52px;min-height:44px;padding:2px;color:#aeb7c3;background:#282d34;border:1px solid #1b1e22;border-radius:3px;cursor:pointer;font-size:10px}
+.iw .iw-waves button svg{width:34px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linejoin:round;stroke-linecap:round}
+.iw .iw-waves button.on{color:#f4fff8;background:#1f4d34;border-color:#17a64f;box-shadow:inset 0 0 0 1px #17a64f}
+.iw .iw-prm{display:grid;grid-template-columns:78px 1fr 62px;align-items:center;gap:6px}
+.iw .iw-prm label{font-size:11px;color:#b9c2ce}
+.iw .iw-prm input[type=range]{width:100%;min-width:0;height:28px;min-height:28px;margin:0;padding:0;background:transparent;border:0;accent-color:#17a64f}
+.iw .iw-prm output{font-size:11px;text-align:right;color:#d1d8e4;font-variant-numeric:tabular-nums}
+.iw .iw-note{font-size:10px;color:#9ba4b0;line-height:1.5}
+.iw .iw-note.warn{color:#e6b34c}
+.iw .iw-cur{display:flex;flex-direction:column;gap:2px;padding:6px 8px;background:#282d34;border:1px solid #1b1e22;border-radius:3px;min-height:36px}
+.iw .iw-cur b{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.iw .iw-cur small{font-size:10px;color:#9ba4b0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.iw .iw-files{display:flex;flex-direction:column;max-height:132px;min-height:60px;overflow:auto;background:#282d34;border:1px solid #1b1e22;border-radius:3px;scrollbar-width:thin;flex:0 0 auto}
+.iw .iw-file{display:flex;align-items:center;gap:6px;min-height:32px;padding:2px 8px;color:#d1d8e4;border:0;border-bottom:1px solid #20252b;background:transparent;border-radius:0;text-align:left;cursor:pointer}
+.iw .iw-file:hover{background:#343b44}.iw .iw-file.sel{background:#2e4a3a}.iw .iw-file.cur .iw-fn::after{content:" ●";color:#d96cb7}
+.iw .iw-fn{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.iw .iw-file small{font-size:9px;color:#9ba4b0;white-space:nowrap}
+.iw .iw-q{width:100%;height:30px;min-height:30px;padding:0 8px;color:#d1d8e4;background:#282d34;border:1px solid #1b1e22;border-radius:3px;flex:0 0 auto}
+.iw .iw-presets{display:flex;flex-direction:column;min-height:110px;flex:1 1 140px;overflow:auto;background:#282d34;border:1px solid #1b1e22;border-radius:3px;scrollbar-width:thin}
+.iw .iw-pre{display:flex;align-items:center;gap:8px;min-height:32px;padding:2px 8px;color:#d1d8e4;border:0;border-bottom:1px solid #20252b;background:transparent;border-radius:0;text-align:left;cursor:pointer;flex:0 0 auto}
+.iw .iw-pre:hover{background:#343b44}.iw .iw-pre.cur{background:#30493a;box-shadow:inset 3px 0 #17a64f}
+.iw .iw-pre small{font-size:10px;color:#9ba4b0;font-variant-numeric:tabular-nums;flex:0 0 auto}.iw .iw-pre span{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.iw .iw-more{height:32px;min-height:32px;color:#d1d8e4;background:#3a414a;border:0;border-top:1px solid #14171a;cursor:pointer;flex:0 0 auto}
+.iw .iw-empty{padding:12px 10px;font-size:11px;color:#9ba4b0;line-height:1.6}
+.iw .iw-act{display:flex;flex-wrap:wrap;gap:5px}
+.iw .iw-act button,.iw .iw-btn{height:30px;min-height:30px;padding:0 10px;color:#d1d8e4;background:linear-gradient(#4b535d,#353c45);border:1px solid #101213;border-radius:2px;cursor:pointer;font-size:11px}
+.iw .iw-kb{flex:0 0 auto;display:flex;flex-direction:column;gap:3px;padding:6px 8px 8px;background:#262b30;border-top:1px solid #14171a}
+.iw .iw-kb>small{font-size:10px;color:#9ba4b0}
+.iw .iw-keys{position:relative;height:64px;touch-action:none;user-select:none;-webkit-user-select:none;overflow:hidden;border:1px solid #101213;border-radius:2px;background:#101213}
+.iw .iw-keys .k{position:absolute;top:0;height:100%;box-sizing:border-box;background:linear-gradient(#f4f6f8,#cfd5dc);border:1px solid #6b7480;border-radius:0 0 3px 3px;cursor:pointer}
+.iw .iw-keys .k.b{height:60%;z-index:2;background:linear-gradient(#3a414a,#14171a);border-color:#0b0d0f}
+.iw .iw-keys .k.on{background:linear-gradient(#7be3a1,#17a64f)}.iw .iw-keys .k.b.on{background:linear-gradient(#17a64f,#0d5a28)}
+@media(pointer:coarse){
+  .iw .iw-tabs button{height:40px;min-height:40px}.iw .iw-waves button{height:60px;min-height:52px}
+  .iw .iw-prm input[type=range]{height:36px;min-height:36px}.iw .iw-file,.iw .iw-pre{min-height:40px}
+  .iw .iw-act button,.iw .iw-btn{height:38px;min-height:38px}.iw .iw-keys{height:84px}.iw .iw-name{height:36px;min-height:36px}
+}
+@media(max-width:760px){
+  :root[data-lmms="1"] main>.inst-window{min-width:260px;min-height:260px;left:6px!important;top:6px!important;width:calc(100% - 12px)!important;height:calc(100% - 40px)!important}
+  .iw .iw-prm{grid-template-columns:64px 1fr 54px}
+}
+
+/* Browser: タブを4つに / トラック一覧と音源セクションで縦方向を分け合う */
+:root[data-lmms="1"] .lmms-browser-tabs{grid-template-columns:repeat(4,1fr)}
+:root[data-lmms="1"] main>aside.lmms-window>#tl{flex:1 1 0;min-height:128px}
+:root[data-lmms="1"] main>aside.lmms-window>#ibr{flex:1 1 0;min-height:96px;max-height:none}
+:root[data-lmms="1"] main>aside.lmms-window>#atl{flex:0 1 auto;max-height:22%}
+.iw .iw-pane[data-pane="synth"]{flex:0 0 auto}
+.iw .iw-pane[data-pane="sf2"]{flex:1 0 auto;min-height:300px}
+.iw .iw-sec{flex:0 0 auto}

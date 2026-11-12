@@ -73,6 +73,7 @@ function foldTrack(t){t.collapsed=!t.collapsed;dirty();draw()}
 function trackMenu(cx,cy,i){
   const t=S.tracks[i];if(!t)return;const T=S.tracks.length;
   menu(cx,cy,'トラックのメニュー',[
+    {t:'音源設定…',off:!window.BGMInst,run:()=>window.BGMInst&&window.BGMInst.open(t.id)},
     {t:'名前を変更…',run:()=>{const inp=inner.querySelector('.sgh-row[data-i="'+i+'"] .sgh-name');if(inp){inp.focus();inp.select()}}},
     {t:'色を変更…',run:()=>pickColor(t.color,v=>{t.color=v;dirty();renderTracks();draw()})},
     {t:'アイコンを変更…',run:()=>iconMenu(cx,cy,t)},
@@ -103,7 +104,7 @@ const inner=hd.querySelector('#sghIn');
 $('sghAdd').onclick=()=>$('add').click();
 hd.addEventListener('wheel',e=>{if(e.ctrlKey||e.metaKey)return;e.preventDefault();roll.scrollTop+=e.deltaY},{passive:false});
 let Hsig='',Hsrc=null;
-const sigNow=()=>S.tracks.map(t=>[t.id,t.name,t.color,t.mute?1:0,t.solo?1:0,t.collapsed?1:0,t.icon||'',t.sf?1:0].join('~')).join('|')+'#'+S.autotr.map(r=>r.id+'~'+(r.name||'')).join('|')+'#'+rowBase();
+const sigNow=()=>S.tracks.map(t=>[t.id,t.name,t.color,t.mute?1:0,t.solo?1:0,t.collapsed?1:0,t.icon||'',t.sf?1:0,instDesc(t)].join('~')).join('|')+'#'+S.autotr.map(r=>r.id+'~'+(r.name||'')).join('|')+'#'+rowBase();
 
 function rowEl(t0,i){
   const tid=t0.id,T=()=>S.tracks.find(x=>x.id===tid)||S.tracks[i]||t0,t=t0;
@@ -111,7 +112,7 @@ function rowEl(t0,i){
   el.style.top=rowTop(i)+'px';el.style.height=rowH(i)+'px';
   const ic=iconOf(t);
   el.innerHTML='<span class="sgh-grip" title="ドラッグでトラックを並べ替え" style="background:'+esc(t.color||'#17793b')+'"></span>'+
-   '<button type="button" class="sgh-ic '+ic.cls+'" data-a="icon" title="アイコンを変更" aria-label="トラックアイコンを変更">'+esc(ic.txt)+'</button>'+
+   '<button type="button" class="sgh-ic '+ic.cls+'" data-a="inst" title="音源設定を開く: '+esc(instDesc(t))+'(アイコンの変更はメニューから)" aria-label="音源設定を開く">'+esc(ic.txt)+'</button>'+
    '<button type="button" class="sgh-fold" data-a="fold" aria-expanded="'+(!t.collapsed)+'" title="'+(t.collapsed?'展開する':'折りたたむ')+'" aria-label="'+(t.collapsed?'展開する':'折りたたむ')+'">'+(t.collapsed?'▸':'▾')+'</button>'+
    '<input class="sgh-name" data-k="name" value="'+esc(t.name)+'" aria-label="トラック名" maxlength="40">'+
    '<button type="button" class="sgh-m'+(t.mute?' on':'')+'" data-a="mute" aria-pressed="'+!!t.mute+'" title="ミュート">M</button>'+
@@ -136,6 +137,7 @@ function rowEl(t0,i){
     if(a==='mute'){T().mute=!T().mute;dirty();renderTracks();draw()}
     else if(a==='solo'){T().solo=!T().solo;dirty();renderTracks();draw()}
     else if(a==='fold')foldTrack(T());
+    else if(a==='inst'){if(window.BGMInst)window.BGMInst.open(T().id);else{const r=b.getBoundingClientRect();iconMenu(r.left,r.bottom,T())}}
     else if(a==='icon'){const r=b.getBoundingClientRect();iconMenu(r.left,r.bottom,T())}
     else if(a==='menu'){const r=b.getBoundingClientRect();trackMenu(r.left,r.bottom,i)}});
   el.addEventListener('contextmenu',e=>{if(e.target.closest('input[type=text]'))return;e.preventDefault();trackMenu(e.clientX,e.clientY,i)});
@@ -419,6 +421,6 @@ if(sgbar){
 }
 roll.addEventListener('wheel',e=>{if(VIEW==='song'&&e.shiftKey&&!e.ctrlKey&&!e.metaKey){e.preventDefault();roll.scrollLeft+=(e.deltaY||e.deltaX)}},{passive:false});
 
-window.SongEditorExt={dupTrack,delTrack,songCopy,songPaste,songDelete,groupDup,selectAllSong,selBlocks,selClips,addBars,zoomTrackH};
+window.SongEditorExt={trackMenu,dupTrack,delTrack,songCopy,songPaste,songDelete,groupDup,selectAllSong,selBlocks,selClips,addBars,zoomTrackH};
 draw();
 })();
