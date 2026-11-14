@@ -42,7 +42,7 @@ function synthVoice(t,p,v,when,dur){
   const pk=(v/127)*.35,A=synEnv(t,'atk'),R=synEnv(t,'rel'),end=when+Math.max(dur,.05); // atk/rel はトラックの音源設定(未設定は従来の0.01秒/0.12秒)
   g.gain.setValueAtTime(0,when);g.gain.linearRampToValueAtTime(pk,when+A);
   g.gain.setValueAtTime(pk*.8,Math.max(end,when+A));g.gain.linearRampToValueAtTime(0,end+R);
-  o.connect(f);f.connect(g);g.connect(chIn(t));o.start(when);o.stop(end+R+.02);
+  o.connect(f);f.connect(g);g.connect(chIn(t));o.start(when);o.stop(end+R+.02);liveVoice(o,g);
 }
 const anySolo=()=>S.tracks.some(t=>t.solo)||AT().some(t=>t.solo);
 const audible=t=>!t.mute&&(!anySolo()||t.solo);
@@ -59,7 +59,7 @@ function schedule(){
     nextTime+=SNAP*spb();nextBeat+=SNAP;
     if(nextBeat>=end-1e-6){
       if(loop){nextBeat=blockPlayback?blockPlayback.start:0}
-      else{const stopAt=end;setTimeout(()=>{if(playing&&playBeat>=stopAt-.1)stop(false)},Math.max(0,(nextTime-ctx.currentTime)*1000));nextBeat=1e9;}
+      else{const stopAt=end;setTimeout(()=>{if(playing&&playBeat>=stopAt-.1)stop(false,true)},Math.max(0,(nextTime-ctx.currentTime)*1000));nextBeat=1e9;}
     }
   }
 }
@@ -70,10 +70,75 @@ function play(){
   timer=setInterval(schedule,25);schedule();setPlayUI(true);requestAnimationFrame(frame);
 }
 let startRef={t:0,b:0};
-function pause(){if(SFPW){clearInterval(SFPW);SFPW=null}playing=false;blockPlayback=null;const bb=$('blockPlay');if(bb){bb.classList.remove('on');bb.innerHTML=ico('play');bb.setAttribute('aria-label','ブロック内を再生');bb.dataset.tip='選択中のソングブロックだけ再生'}clearInterval(timer);ASRC.forEach(x=>{try{x.stop()}catch(e){}});ASRC.clear();resetAuto();setPlayUI(false)}
+function pause(hard,soft){if(SFPW){clearInterval(SFPW);SFPW=null}playing=false;blockPlayback=null;const bb=$('blockPlay');if(bb){bb.classList.remove('on');bb.innerHTML=ico('play');bb.setAttribute('aria-label','ブロック内を再生');bb.dataset.tip='選択中のソングブロックだけ再生'}clearInterval(timer);ASRC.forEach(x=>{try{x.stop()}catch(e){}});ASRC.clear();resetAuto();setPlayUI(false);if(!soft){if(hard)cutAll();else cutVoices()}}
+/* ---------- 即時停止: 鳴っている音・予約済みの音・エフェクトの余韻をすべて止める ----------
+   発音ノードは liveVoice() で登録しておき、停止時に約8msのフェードで確実に止める(クリック音防止)。
+   cutAll() はさらにマスターを一瞬ミュートし、リバーブ/ディレイ等の余韻(エフェクトの内部バッファ)も作り直して捨てる。 */
+const LIVEV=new Set();let FLT=0;
+function liveVoice(src,g){const e={src,g};LIVEV.add(e);src.addEventListener('ended',()=>LIVEV.delete(e))}
+function cutVoices(){
+  if(!ctx||!LIVEV.size)return;const now=ctx.currentTime;
+  for(const e of LIVEV){try{const gp=e.g.gain;gp.cancelScheduledValues(now);gp.setValueAtTime(gp.value,now);gp.linearRampToValueAtTime(0,now+.008)}catch(_){}try{e.src.stop(now+.012)}catch(_){}}
+  LIVEV.clear()}
+function flushFx(){
+  if(!ctx)return;
+  for(const t of S.tracks){const c=CH.get(t);if(!c)continue;
+    for(const e of (t.fx||[]))FXN.delete(e); // rebuild() が古いノードを破棄(ds)して新しく作り直す=内部の余韻が消える
+    try{rebuild(t)}catch(_){}
+    try{c.eg.disconnect();c.ec.O.disconnect();if(c.ec.ds)c.ec.ds();c.ec=mkFx('delay',{mix:1,time:.3,fb:.35});c.eg.connect(c.ec.I);c.ec.O.connect(master)}catch(_){}}}
+function cutAll(){
+  cutVoices();if(!ctx||!master)return;const now=ctx.currentTime,mg=master.gain;
+  try{mg.cancelScheduledValues(now);mg.setValueAtTime(mg.value,now);mg.linearRampToValueAtTime(0,now+.006)}catch(_){}
+  clearTimeout(FLT);FLT=setTimeout(()=>{FLT=0;if(!ctx)return;try{if(!playing&&!RP.playing)flushFx()}catch(e){console.warn('flushFx',e)}
+    try{const t=ctx.currentTime;mg.cancelScheduledValues(t);mg.setValueAtTime(AUTOLIVE.has('master:vol')?mg.value:(S.master==null?.8:S.master),t)}catch(_){}},45)}
+
+/* ---------- ピアノロール専用の再生(再生 / 停止 / 再生ヘッド) ----------
+   Piano Roll 窓の中だけで、編集中のパターン(EP)を選択中トラックの音源で鳴らす。ソング全体の再生(play())とは別。
+   再生位置 RP.pos は「パターン内の拍」。ルーラーをタップ/ドラッグして動かせる。 */
+const RP_EMBED=new URLSearchParams(location.search).get('pianoEmbed')==='1';
+const RP={pos:0,playing:false,loop:true,nextBeat:0,nextTime:0,ref:{t:0,b:0},timer:null,from:-1,bpm:0};
+const rollLen=()=>EP?Math.max(SNAP,+EP.len||S.len):S.len;
+function rollSchedule(){
+  if(!RP.playing||!ctx)return;if(!EP){rollHalt(true);return}
+  const t=S.tracks[sel],len=rollLen(),ahead=ctx.currentTime+.15;
+  while(RP.nextTime<ahead){
+    const b0=RP.nextBeat;
+    if(t)for(const n of EP.notes){if(n.s>=len-1e-6||n.s<b0-1e-6||n.s>=b0+SNAP-1e-6||n.s<RP.from-1e-6)continue;
+      VB=n.s;PA={p:EP,b:n.s};voice(t,n.p,n.v,RP.nextTime+(n.s-b0)*spb(),Math.min(n.d,Math.max(0,len-n.s))*spb());VB=null;PA=null}
+    RP.from=-1;RP.nextTime+=SNAP*spb();RP.nextBeat+=SNAP;
+    if(RP.nextBeat>=len-1e-6){if(RP.loop)RP.nextBeat=0;else{RP.nextBeat=1e9;break}}
+  }
+}
+function rollUI(){const b=$('rPlay');if(!b)return;b.innerHTML=ico(RP.playing?'pause':'play');b.classList.toggle('on',RP.playing);
+  b.setAttribute('aria-label',RP.playing?'一時停止':'再生');b.dataset.tip=RP.playing?'一時停止(その場で音を止めます)':'このピアノロールを再生(Space)';
+  const l=$('rLoop');if(l)l.classList.toggle('on',RP.loop)}
+let rpPrev=0;
+function rollFollow(){const px=RP.pos*BW,v=x=>x>=roll.scrollLeft&&x<=roll.scrollLeft+roll.clientWidth-24;if(v(rpPrev)&&!v(px))roll.scrollLeft=Math.max(0,px-60);rpPrev=px}
+function rollFrame(){
+  if(!RP.playing)return;
+  if(RP.bpm!==S.bpm){const p=RP.pos;rollHalt(false);RP.pos=p;rollPlay();return} // テンポが変わったら現在位置から取り直す
+  const len=rollLen(),e=RP.ref.b+(ctx.currentTime-RP.ref.t)/spb();
+  if(!RP.loop&&e>=len){rollHalt(false,true);RP.pos=0;roll.scrollLeft=0;draw();return} // 最後まで鳴らし終わった(余韻は自然に消える)
+  RP.pos=RP.loop?e%len:Math.min(e,len);rollFollow();draw();requestAnimationFrame(rollFrame)}
+function rollPlay(){
+  if(!RP_EMBED||RP.playing||!EP)return;
+  if(playing)pause(true);
+  if(sfWaitStart(rollPlay))return;try{libSyncProject().catch(()=>{})}catch(_){}
+  syncBuf();initAudio();const len=rollLen();if(RP.pos>=len-1e-6)RP.pos=0;
+  const b0=RP.pos,now=ctx.currentTime+.06;
+  RP.playing=true;RP.bpm=S.bpm;RP.nextBeat=Math.floor(b0/SNAP)*SNAP;RP.from=b0;RP.nextTime=now-(b0-RP.nextBeat)*spb();RP.ref={t:now,b:b0};
+  clearInterval(RP.timer);RP.timer=setInterval(rollSchedule,25);rollSchedule();rollUI();requestAnimationFrame(rollFrame)}
+function rollHalt(hard,soft){ // 再生を止める(位置はそのまま)。hard=発音もエフェクトの余韻もその場で完全に止める
+  if(SFPW){clearInterval(SFPW);SFPW=null}
+  RP.playing=false;clearInterval(RP.timer);RP.timer=null;
+  if(!soft){if(hard)cutAll();else cutVoices()}rollUI()}
+function rollStop(){rollHalt(true);RP.pos=0;roll.scrollLeft=0;draw()} // ストップ: 押した瞬間に完全停止し、先頭へ戻る
+function rollSeek(beat){const b=Math.max(0,Math.min(rollLen(),Math.round(beat/SNAP)*SNAP)),was=RP.playing;
+  if(was)rollHalt(false);RP.pos=b;draw();if(was)rollPlay()}
+function rollDragTo(e){const x=pt(e).x;RP.pos=Math.max(0,Math.min(rollLen(),Math.round(x/BW/SNAP)*SNAP));edgeScroll(e);draw()}
 let prevPx=0;
 function followPlayhead(){const px=playBeat*BW,v=x=>x>=roll.scrollLeft&&x<=roll.scrollLeft+roll.clientWidth-24;if(v(prevPx)&&!v(px))roll.scrollLeft=Math.max(0,px-60);prevPx=px}
-function stop(rewind){pause();if(rewind){playBeat=0;roll.scrollLeft=0}draw();upPos()}
+function stop(rewind,soft){pause(!soft,soft);if(rewind){playBeat=0;roll.scrollLeft=0}draw();upPos()} // 停止ボタン: 押した瞬間に、鳴っている音も予約済みの音も(余韻のエフェクトまで)完全に止める。soft=曲の終端で自然に止まるときだけ余韻を残す
 function frame(){
   if(!playing)return;
   let b=startRef.b+(ctx.currentTime-startRef.t)/spb();
@@ -222,7 +287,7 @@ function boxSelect(){const d=drag,xa=Math.min(d.x0,d.x1),xb=Math.max(d.x0,d.x1),
   for(const n of S.tracks[sel].notes){const nx0=n.s*BW,nx1=(n.s+n.d)*BW,ny0=(HI-1-n.p)*RH,ny1=ny0+RH;if(nx1>=xa&&nx0<=xb&&ny1>=ya&&ny0<=yb)selSet.add(n)}}
 cv.addEventListener('pointerdown',e=>{
   const rc=cv.getBoundingClientRect();
-  if(VIEW!=='roll')return;syncBuf();if(e.clientY-rc.top<RULER){const localBeat=(e.clientX-rc.left+roll.scrollLeft)/BW;const targetBeat=(EP&&sSel&&sSel.pid===EP.id)?sSel.s+localBeat:localBeat;seekTo(targetBeat);return}
+  if(VIEW!=='roll')return;syncBuf();if(e.clientY-rc.top<RULER){if(RP_EMBED){e.preventDefault();cv.setPointerCapture(e.pointerId);const was=RP.playing;if(was)rollHalt(false);drag={mode:'rhead',was};rollDragTo(e);return}const localBeat=(e.clientX-rc.left+roll.scrollLeft)/BW;const targetBeat=(EP&&sSel&&sSel.pid===EP.id)?sSel.s+localBeat:localBeat;seekTo(targetBeat);return}
   initAudio();const{x,y}=pt(e),t=S.tracks[sel];let n=hit(x,y);
   const mod=e.shiftKey||e.ctrlKey||e.metaKey;const was=!!n;
   if(e.pointerType==='touch'){ // タッチ: 2本指=ズーム / 空き領域のドラッグ=スクロール / タップ(指を離したとき)=追加
@@ -261,7 +326,7 @@ cv.addEventListener('pointerdown',e=>{
 });
 cv.addEventListener('pointermove',e=>{
   if(TP.has(e.pointerId))TP.set(e.pointerId,{x:e.clientX,y:e.clientY});if(pinch){pinchMove();return}
-  if(!drag)return;const{x,y}=pt(e);if(drag.mode==='tapadd'||drag.mode==='pan'){tapPan(e);return}
+  if(!drag)return;if(drag.mode==='rhead'){rollDragTo(e);return}const{x,y}=pt(e);if(drag.mode==='tapadd'||drag.mode==='pan'){tapPan(e);return}
   if(drag.mode==='box'){edgeScroll(e);drag.x1=x;drag.y1=y;boxSelect();draw();return}
   const n=drag.n;if(!drag.moved&&Math.hypot(e.clientX-drag.cx,e.clientY-drag.cy)<8)return;autoExtend(e,x);
   if(drag.mode==='resize'){n.d=Math.max(GRID,Math.min(S.len-n.s,Math.round((x/BW-n.s)/GRID)*GRID));lastDur=n.d}
@@ -303,6 +368,7 @@ cv.addEventListener('pointermove',e=>{
 });
 const endDrag=e=>{if(e&&TP.has(e.pointerId))TP.delete(e.pointerId);if(pinch){if(TP.size<2)pinch=null;return}
   if(!drag)return;const d=drag;drag=null;
+  if(d.mode==='rhead'){if(d.was)rollPlay();else draw();return}
   if(d.mode==='tapadd'){if(!d.moved&&e&&e.type==='pointerup'&&performance.now()-d.t0<700)tapAdd(d.x,d.y);return}
   if(d.mode==='pan')return;
   if(d.mode==='box'){selNote=selSet.size===1?[...selSet][0]:null;draw();return}
@@ -368,7 +434,7 @@ function updateHS(){const hs=$('hs'),T=$('hsT'),tw=hs.clientWidth,W=S.len*BW,vw=
   $('hsP').style.left=Math.min(tw-2,playBeat/S.len*tw)+'px'}
 
 /* ---------- controls ---------- */
-$('play').onclick=()=>playing?pause():play();
+$('play').onclick=()=>playing?pause(true):play();
 $('blockPlay').onclick=()=>{
   if(blockPlayback&&playing){stop(false);return}
   if(playing)return;
@@ -380,6 +446,7 @@ $('blockPlay').onclick=()=>{
   timer=setInterval(schedule,25);schedule();setPlayUI(true);$('blockPlay').classList.add('on');$('blockPlay').innerHTML=ico('pause');$('blockPlay').setAttribute('aria-label','ブロック再生を停止');$('blockPlay').dataset.tip='ブロック再生を停止';requestAnimationFrame(frame);
 };
 $('stop').onclick=()=>stop(true);
+if($('rPlay')){$('rPlay').onclick=()=>{if(RP.playing){rollHalt(true)}else rollPlay()};$('rStop').onclick=rollStop;$('rLoop').onclick=()=>{RP.loop=!RP.loop;rollUI()}}
 $('rew').onclick=()=>{const w=playing;if(w)pause();playBeat=0;if(w)play();else{draw();upPos()}};
 $('bpm').onchange=e=>{const v=Math.max(40,Math.min(240,+e.target.value||120));e.target.value=v;
   if(playing){const b=playBeat;pause();S.bpm=v;playBeat=b;play()}else S.bpm=v;updSyncFx();dirty()};
@@ -461,7 +528,7 @@ async function bgmProjectOpenRecent(){ // 直近に開いた/保存したファ�
 $('projectFile').onchange=async e=>{const f=e.target.files[0];e.target.value='';await bgmProjectOpen(f,null)};
 addEventListener('keydown',e=>{
   if(['INPUT','SELECT'].includes(e.target.tagName))return;
-  if(e.code==='Space'){e.preventDefault();$('play').click()}
+  if(e.code==='Space'){e.preventDefault();(RP_EMBED&&$('rPlay')?$('rPlay'):$('play')).click()}
   else if(e.key==='Delete'||e.key==='Backspace'){delSel()}
   else if((e.ctrlKey||e.metaKey)&&['z','y'].includes((e.key||'').toLowerCase())){e.preventDefault();((e.shiftKey||(e.key||'').toLowerCase()==='y')?$('redo'):$('undo')).click()}
 });
@@ -540,7 +607,7 @@ function sfVoice(t,p,v,when,dur){
     const tau=Math.max(z.dec/3,.001);g.gain.setTargetAtTime(peak*lvl,ta,tau);
     const ve=end>ta?peak*lvl+(peak-peak*lvl)*Math.exp(-(end-ta)/tau):peak*(end-when)/(ta-when);
     g.gain.setValueAtTime(ve,end);g.gain.setTargetAtTime(0,end,z.rel/3);
-    src.connect(g);g.connect(pn);pn.connect(chIn(t));src.start(when);src.stop(end+Math.min(z.rel*1.5,4)+.05)}}
+    src.connect(g);g.connect(pn);pn.connect(chIn(t));src.start(when);src.stop(end+Math.min(z.rel*1.5,4)+.05);liveVoice(src,g)}}
 $('sf2b').onclick=()=>$('sf2f').click();
 $('sf2f').onchange=e=>{const fl=[...e.target.files];e.target.value='';libAddFiles(fl)};
 /* ---------- ミキサー / エフェクト ---------- */
@@ -1070,7 +1137,7 @@ function songNotes(){if(NC)return NC;NC=[];const P=new Map(S.patterns.map(p=>[p.
     for(let k=0;k*p.len<pl.l-1e-9;k++){const o=pl.s+k*p.len,lim=Math.min(pl.s+pl.l,o+p.len);
       for(const n of p.notes){const st=o+n.s;if(n.s>=p.len||st>=lim)continue;NC.push({t,p:n.p,s:st,d:Math.min(n.d,lim-st),v:n.v,ti:pl.ti,pat:p,localS:n.s})}}}
   return NC}
-function relPB(){if(!EP)return -1;for(const q of S.place)if(q.pid===EP.id&&playBeat>=q.s&&playBeat<q.s+q.l)return(playBeat-q.s)%EP.len;return -1}
+function relPB(){if(RP_EMBED)return RP.pos;if(!EP)return -1;for(const q of S.place)if(q.pid===EP.id&&playBeat>=q.s&&playBeat<q.s+q.l)return(playBeat-q.s)%EP.len;return -1}
 function updInfo(){if(EP){const n=S.place.filter(q=>q.pid===EP.id).length;$('pinfo').textContent='編集中: '+EP.name+' (配置'+n+'箇所)';if(document.activeElement!==$('plen'))$('plen').value=EP.len/4}}
 function draw(){if(VIEW==='auto'&&!EA){if(EMBED_AUTO){autoEmptyShow(true);return}setView('song');return}syncBuf();updInfo();if(VIEW==='song'){drawSong();updateHS();updateVS();drawAL()}else if(VIEW==='auto'){autoEmptyShow(false);updAbar();drawAuto();updateHS();updateVS();drawAL()}else drawRoll();window.__lmmsRefreshPreviews?.();window.__BGMAutoSelWatch?.()}
 window.__BGMGetView=()=>VIEW;

@@ -716,3 +716,8 @@ body.piano-embed #pianoTools .pk-ctl{flex-shrink:0!important}
 .iw .iw-pane[data-pane="synth"]{flex:0 0 auto}
 .iw .iw-pane[data-pane="sf2"]{flex:1 0 auto;min-height:300px}
 .iw .iw-sec{flex:0 0 auto}
+
+/* Piano Roll: 再生 / 停止 / ループ */
+body.piano-embed #pianoTools #rPlay,body.piano-embed #pianoTools #rStop,body.piano-embed #pianoTools #rLoop{flex-shrink:0!important}
+body.piano-embed #pianoTools #rPlay.on{background:linear-gradient(#1d8d45,#14692f);border-color:#0d5a28;color:#f4fff8}
+@media(pointer:coarse){body.piano-embed #pianoTools #rPlay,body.piano-embed #pianoTools #rStop,body.piano-embed #pianoTools #rLoop{min-width:44px!important;min-height:40px!important;height:40px!important}}
