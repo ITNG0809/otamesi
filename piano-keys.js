@@ -151,7 +151,7 @@ if(bar){
    '<span class="sl pk-opt">鍵盤幅</span><button type="button" id="pkWm" class="ib sq pk-opt" data-tip="鍵盤を細く" aria-label="鍵盤を細く"><svg class="ic" aria-hidden="true"><use href="#i-minus"/></svg></button>'+
    '<b id="pkWl" class="zv pk-opt"></b><button type="button" id="pkWp" class="ib sq pk-opt" data-tip="鍵盤を太く" aria-label="鍵盤を太く"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg></button>'+
    '<select id="pkLb" class="pk-opt" aria-label="鍵盤の音名表示" data-tip="鍵盤の音名表示" data-dd-search="0"><option value="all">音名: すべて</option><option value="c">音名: Cのみ</option><option value="off">音名: なし</option></select>';
-  const plen=document.getElementById('plen'),anchor=plen&&plen.previousElementSibling; // 「パターン長」の手前(ツールバー左側)に置く
+  const plen=document.getElementById('plen'),grp=plen&&plen.closest('.ptg'),anchor=grp||(plen&&plen.previousElementSibling); // 「パターン長」グループの手前に置く
   if(anchor&&anchor.parentNode===bar)bar.insertBefore(box,anchor);else bar.appendChild(box);
   const $$=id=>document.getElementById(id);
   const sync=()=>{

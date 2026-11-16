@@ -721,3 +721,27 @@ body.piano-embed #pianoTools .pk-ctl{flex-shrink:0!important}
 body.piano-embed #pianoTools #rPlay,body.piano-embed #pianoTools #rStop,body.piano-embed #pianoTools #rLoop{flex-shrink:0!important}
 body.piano-embed #pianoTools #rPlay.on{background:linear-gradient(#1d8d45,#14692f);border-color:#0d5a28;color:#f4fff8}
 @media(pointer:coarse){body.piano-embed #pianoTools #rPlay,body.piano-embed #pianoTools #rStop,body.piano-embed #pianoTools #rLoop{min-width:44px!important;min-height:40px!important;height:40px!important}}
+
+/* Piano Roll ツールバー: 機能ごとのグループに分け、ウィンドウ上部で折り返して全て表示する(横スクロールなし) */
+body.piano-embed{display:flex!important;flex-direction:column!important}
+body.piano-embed #pianoTools{position:static!important;order:0!important;flex:0 0 auto!important;left:auto!important;right:auto!important;bottom:auto!important;height:auto!important;min-height:0!important;max-height:none!important;overflow:visible!important;flex-wrap:wrap!important;white-space:normal!important;align-items:center!important;gap:4px 6px!important;padding:4px 6px!important;border-top:0!important;border-bottom:1px solid var(--line)!important}
+body.piano-embed>main{position:relative!important;inset:auto!important;order:1!important;flex:1 1 0!important;width:100%!important;height:auto!important;min-height:0!important}
+body.piano-embed #pianoTools .ptg,body.piano-embed #pianoTools .pk-ctl{display:inline-flex!important;align-items:center;gap:4px;flex:0 0 auto;padding:2px 5px;border-radius:5px;background:rgba(255,255,255,.04)}
+body.piano-embed #pianoTools .sep{display:none!important}
+body.piano-embed #pianoTools #info{flex:1 1 80px;min-width:0;overflow:hidden;text-overflow:ellipsis}
+body.piano-embed #pianoTools #info:empty{display:none!important}
+body.piano-embed #pianoTools #info{flex:0 1 auto!important}
+/* ツールバーを少し詰めて、既定サイズの窓でも2段に収める */
+@media(pointer:fine){
+ body.piano-embed #pianoTools{gap:3px 4px!important;padding:3px 4px!important}
+ body.piano-embed #pianoTools .ib.sq{min-width:30px!important;width:30px!important;min-height:30px!important;height:30px!important}
+ body.piano-embed #pianoTools .ib.lbl{min-height:30px!important;height:30px!important;padding:0 7px!important}
+ body.piano-embed #pianoTools .ptg,body.piano-embed #pianoTools .pk-ctl{gap:3px;padding:2px 4px}
+ body.piano-embed #pianoTools input[type=number]{width:52px!important;min-height:30px!important;height:30px!important;padding:2px 4px!important}
+ body.piano-embed #pianoTools select,body.piano-embed #pianoTools .dd{min-height:30px!important}
+}
+@media(pointer:fine){
+ body.piano-embed #pianoTools .ptg,body.piano-embed #pianoTools .pk-ctl{gap:2px;padding:2px 3px}
+ body.piano-embed #pianoTools #bars,body.piano-embed #pianoTools #plen{width:46px!important}
+ body.piano-embed #pianoTools{column-gap:3px!important}
+}
