@@ -30,6 +30,13 @@ function voice(t,p,v,when,dur){if(!(v>0)){PA=null;PC=null;return}PC=(VB==null||!
    ・SF2→シンセへ切り替えたときだけ、元のSF2指定を t.sfStash に退避(戻すと復元)。音符・パターンには一切触れない */
 const SYN_ENV={atk:[.001,2,.01],rel:[.005,3,.12]};
 function synEnv(t,k){const d=SYN_ENV[k],v=t&&t[k]!=null?+t[k]:d[2];return isFinite(v)?Math.max(d[0],Math.min(d[1],v)):d[2]}
+/* SF2用の上乗せ設定(任意項目。未設定=SF2の元の設定のまま鳴らす=従来と同じ音)
+   t.sfCut: ローパスのカットオフ(Hz) / t.sfAtk: アタック(秒・SF2の値を置き換え) / t.sfRel: リリース(秒・SF2の値を置き換え) */
+const SF_ENV={cut:[200,12000],atk:[.001,2],rel:[.005,3]};
+function sfFx(t){const r={cut:null,atk:null,rel:null};if(!t)return r;
+  const g=(v,d)=>{if(v==null||v==='')return null;v=+v;return isFinite(v)?Math.max(d[0],Math.min(d[1],v)):null};
+  r.cut=g(t.sfCut,SF_ENV.cut);if(r.cut!=null&&r.cut>=SF_ENV.cut[1])r.cut=null;
+  r.atk=g(t.sfAtk,SF_ENV.atk);r.rel=g(t.sfRel,SF_ENV.rel);return r}
 const WAVE_JA={sine:'サイン波',triangle:'三角波',square:'矩形波',sawtooth:'ノコギリ波'};
 const instType=t=>t&&t.sf?'sf2':'synth';
 function instLabel(t){if(t.sf){const R=sfRes(t);return 'SF2 · '+(t.sf.n||('Bank'+t.sf.b+':'+t.sf.p))+(R?'':'(未読込)')}return 'シンセ · '+(WAVE_JA[t.wave]||t.wave)}
@@ -599,15 +606,17 @@ function sfVoice(t,p,v,when,dur){
     const src=ctx.createBufferSource();src.buffer=ab;
     const rate=Math.pow(2,((p-z.root)*100+z.tune)/1200);src.playbackRate.value=rate;bindPb(t,src.detune,src);if(PC)applyDet(src.detune,when,PC);
     if(z.loop&&s.el>s.sl+8){src.loop=true;src.loopStart=(s.sl-s.start)/ab.sampleRate;src.loopEnd=(s.el-s.start)/ab.sampleRate}
+    const FX=sfFx(t),zAtk=FX.atk!=null?FX.atk:z.atk,zRel=FX.rel!=null?FX.rel:z.rel; // 上乗せ設定があればSF2の値を置き換える
     const g=ctx.createGain(),pn=ctx.createStereoPanner();pn.pan.value=Math.max(-1,Math.min(1,z.pan/500));
     const peak=Math.pow(v/127,2)*Math.pow(10,-z.att/200)*.6,lvl=Math.pow(10,-z.sus/200);
     let end=when+Math.max(dur,.05);if(!z.loop)end=Math.max(end,when+Math.min(ab.duration/rate,1.5));
-    const ta=when+Math.max(z.atk,.003);
+    const ta=when+Math.max(zAtk,.003);
     g.gain.setValueAtTime(0,when);g.gain.linearRampToValueAtTime(peak,ta);
     const tau=Math.max(z.dec/3,.001);g.gain.setTargetAtTime(peak*lvl,ta,tau);
     const ve=end>ta?peak*lvl+(peak-peak*lvl)*Math.exp(-(end-ta)/tau):peak*(end-when)/(ta-when);
-    g.gain.setValueAtTime(ve,end);g.gain.setTargetAtTime(0,end,z.rel/3);
-    src.connect(g);g.connect(pn);pn.connect(chIn(t));src.start(when);src.stop(end+Math.min(z.rel*1.5,4)+.05);liveVoice(src,g)}}
+    g.gain.setValueAtTime(ve,end);g.gain.setTargetAtTime(0,end,zRel/3);
+    if(FX.cut!=null){const lf=ctx.createBiquadFilter();lf.type='lowpass';lf.frequency.value=FX.cut;src.connect(lf);lf.connect(g)}else src.connect(g);
+    g.connect(pn);pn.connect(chIn(t));src.start(when);src.stop(end+Math.min(zRel*1.5,4)+.05);liveVoice(src,g)}}
 $('sf2b').onclick=()=>$('sf2f').click();
 $('sf2f').onchange=e=>{const fl=[...e.target.files];e.target.value='';libAddFiles(fl)};
 /* ---------- ミキサー / エフェクト ---------- */

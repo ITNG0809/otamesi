@@ -2,6 +2,7 @@
    ・既存の再生エンジンとデータ構造(S.tracks[i].wave / cut / sf …)をそのまま使う。新しいデータは任意項目だけ:
        t.atk / t.rel : 内蔵シンセのアタック/リリース(秒)。未設定なら従来値(0.01 / 0.12)
        t.sfStash     : SF2 → 内蔵シンセへ切り替えたときだけ、元のSF2指定を退避(SF2へ戻すと復元)
+       t.sfCut / t.sfAtk / t.sfRel : SF2音源へ上乗せするカットオフ(Hz)/アタック(秒)/リリース(秒)。未設定=SF2の元の設定のまま(従来と同じ音)
    ・音源を変えても、パターン・音符・ソングの配置(S.patterns / S.place)には一切触れない。
    ・SF2は既存ライブラリ(LIB / sfRes / warmTracks)の遅延読み込みをそのまま使う。このファイルはSF2本体を読まない。
    ・読み込み順: script.js → song-editor.js → … → lmms-ui.js → instrument.js */
@@ -38,11 +39,15 @@ function assignSF(t,fid,b,p){
 const W=new Map(); // trackId -> window state
 const WAVES=[['sine','サイン波','M1 10C6 -2 11 -2 17 10S28 22 33 10'],['triangle','三角波','M1 10L9 3L25 17L33 10'],['square','矩形波','M1 16V4H12V16H23V4H33'],['sawtooth','ノコギリ波','M1 16L13 4V16L25 4V16L33 8']];
 /* スライダー位置(0..1000)⇔値の対数マッピング */
-const LOGP={cut:[200,12000],atk:[.001,2],rel:[.005,3]};
+const LOGP={cut:[200,12000],atk:[.001,2],rel:[.005,3],sfCut:[200,12000],sfAtk:[.001,2],sfRel:[.005,3]};
+const SFK={sfCut:'cut',sfAtk:'atk',sfRel:'rel'}; // SF2用つまみ(未設定=SF2のまま)
 const toPos=(k,v)=>{const [a,b]=LOGP[k];v=Math.max(a,Math.min(b,v));return Math.round(1000*Math.log(v/a)/Math.log(b/a))};
 const fromPos=(k,x)=>{const [a,b]=LOGP[k];return a*Math.pow(b/a,x/1000)};
 const fmtV={cut:v=>Math.round(v)+' Hz',atk:v=>v<1?Math.round(v*1000)+' ms':v.toFixed(2)+' s',rel:v=>v<1?Math.round(v*1000)+' ms':v.toFixed(2)+' s'};
-const curVal=(t,k)=>k==='cut'?(t.cut==null?6000:+t.cut):synEnv(t,k);
+fmtV.sfCut=v=>v==null?'オフ(SF2のまま)':fmtV.cut(v);fmtV.sfAtk=v=>v==null?'SF2のまま':fmtV.atk(v);fmtV.sfRel=v=>v==null?'SF2のまま':fmtV.rel(v);
+const curVal=(t,k)=>{if(SFK[k]){const f=sfFx(t)[SFK[k]];return f==null?null:f}return k==='cut'?(t.cut==null?6000:+t.cut):synEnv(t,k)};
+const sfDefPos={sfCut:1000,sfAtk:0,sfRel:0}; // 未設定のときのつまみ位置(カットオフは右端=フィルターなし)
+const posOf=(t,k)=>{const v=curVal(t,k);return v==null?sfDefPos[k]:toPos(k,v)};
 const taskbar=document.getElementById('lmmsTaskbar');
 
 function keysHTML(){ // C4(60)〜B5(83)
@@ -69,6 +74,10 @@ function createWindow(t){
      '<div class="iw-files" data-r="files" role="listbox" aria-label="SoundFont"></div>'+
      '<input class="iw-q" data-r="q" type="search" placeholder="プリセットを検索(名前 / バンク:番号)" aria-label="プリセットを検索">'+
      '<div class="iw-presets" data-r="presets" role="listbox" aria-label="プリセット"></div>'+
+     '<div class="iw-sec"><h4>フィルター / エンベロープ(SF2に上乗せ)</h4>'+
+      [['sfCut','カットオフ'],['sfAtk','アタック'],['sfRel','リリース']].map(([k,l])=>'<div class="iw-prm"><label for="iw'+t.id+k+'">'+l+'</label><input id="iw'+t.id+k+'" type="range" min="0" max="1000" step="1" data-p="'+k+'" aria-label="'+l+'(SF2)"><output data-o="'+k+'"></output></div>').join('')+
+      '<div class="iw-act"><button type="button" data-act="sfreset">SF2のままに戻す</button></div>'+
+      '<div class="iw-note">未操作のときはSF2が持つ元の音のままです。カットオフは右端でオフ(ローパスなし)。アタック・リリースは動かすとSF2の値を置き換えます。つまみのダブルクリックで、その項目だけSF2のままに戻せます。</div></div>'+
      '<div class="iw-note" data-r="sfnote"></div>'+
      '<div class="iw-act"><button type="button" data-act="addsf">SF2を追加…</button><button type="button" data-act="lib">SF2ライブラリを開く</button></div>'+
     '</div>'+
@@ -103,11 +112,15 @@ function wire(w){
   el.querySelectorAll('[data-wave]').forEach(b=>b.onclick=()=>{const t=T();if(t)setWave(t,b.dataset.wave)});
   /* 内蔵シンセのつまみ: 1回の操作につきUndoは1つ */
   el.querySelectorAll('[data-p]').forEach(inp=>{const k=inp.dataset.p;
-    markAuto(inp,'trk:'+w.tid+':'+k);
+    if(!SFK[k])markAuto(inp,'trk:'+w.tid+':'+k);
     inp.addEventListener('input',()=>{const t=T();if(!t)return;if(!w.gest){pushUndo();w.gest=true}
-      const v=fromPos(k,+inp.value);t[k]=k==='cut'?Math.round(v):+v.toFixed(4);
+      if(SFK[k]){ // SF2用: カットオフは右端=オフ(項目を消す)。他は値を保存
+        if(k==='sfCut'&&+inp.value>=1000)delete t[k];else{const v=fromPos(k,+inp.value);t[k]=k==='sfCut'?Math.round(v):+v.toFixed(4)}
+      }else{const v=fromPos(k,+inp.value);t[k]=k==='cut'?Math.round(v):+v.toFixed(4)}
       const o=el.querySelector('[data-o="'+k+'"]');if(o)o.textContent=fmtV[k](curVal(t,k));dirty()});
+    if(SFK[k])inp.addEventListener('dblclick',()=>{const t=T();if(!t||t[k]==null)return;pushUndo();delete t[k];dirty();inp.value=sfDefPos[k];const o=el.querySelector('[data-o="'+k+'"]');if(o)o.textContent=fmtV[k](null);audition(t)});
     inp.addEventListener('change',()=>{w.gest=false;const t=T();if(t)audition(t)})});
+  el.querySelector('[data-act="sfreset"]').onclick=()=>{const t=T();if(!t)return;pushUndo();delete t.sfCut;delete t.sfAtk;delete t.sfRel;dirty();syncWin(w);audition(t)};
   el.querySelector('[data-act="reset"]').onclick=()=>{const t=T();if(!t)return;pushUndo();t.cut=6000;delete t.atk;delete t.rel;dirty();syncWin(w)};
   /* 音量 / パン(トラック一覧・ミキサーと同じ値) */
   el.querySelectorAll('[data-tk]').forEach(inp=>{const k=inp.dataset.tk;markAuto(inp,'trk:'+w.tid+':'+k);
@@ -163,7 +176,7 @@ function syncWin(w){
   w.el.querySelectorAll('[data-pane]').forEach(p=>p.hidden=p.dataset.pane!==tab);
   const cw=WAVE_JA[t.wave]?t.wave:'sawtooth';
   w.el.querySelectorAll('[data-wave]').forEach(b=>{const on=b.dataset.wave===cw&&type==='synth';b.classList.toggle('on',on);b.setAttribute('aria-pressed',on)});
-  for(const k of ['cut','atk','rel']){const inp=w.el.querySelector('[data-p="'+k+'"]'),pos=toPos(k,curVal(t,k));
+  for(const k of ['cut','atk','rel','sfCut','sfAtk','sfRel']){const inp=w.el.querySelector('[data-p="'+k+'"]'),pos=posOf(t,k);
     if(inp&&document.activeElement!==inp&&Math.abs(+inp.value-pos)>1)inp.value=pos;
     const o=w.el.querySelector('[data-o="'+k+'"]');if(o)o.textContent=fmtV[k](curVal(t,k))}
   for(const k of ['vol','pan']){setRange(w.el.querySelector('[data-tk="'+k+'"]'),k==='vol'?(t.vol==null?.7:t.vol):(t.pan||0));
